@@ -1,0 +1,44 @@
+id,edad,peso_pregest,talla,imc_cat,educ_level,marital_status,workouthome,preterm_status,early_preterm_status,anemia,diabetes,n_visits
+Gg0270,30,71,157,Sobrepeso,3.- Vocational/Technical,5,1,0,0,0,0,2
+Gg0320,18,44,142,Peso normal,2.- Secondary education,5,0,1,0,1,0,1
+Gg0455,40,84,156,Obesidad,2.- Secondary education,1,0,1,0,0,0,1
+Gg0481,31,66,168,Peso normal,3.- Vocational/Technical,2,0,0,0,0,0,2
+Gg0682,26,46,152,Peso normal,3.- Vocational/Technical,2,0,0,0,0,0,2
+Gg0695,18,58,150,Sobrepeso,2.- Secondary education,5,0,0,0,0,0,3
+Gg0700,18,54.1,156,Peso normal,2.- Secondary education,1,0,0,0,0,0,2
+Gg0713,NA,NA,NA,NA,NA,NA,NA,0,0,0,0,2
+Gg0723,18,69,151,Obesidad,3.- Vocational/Technical,1,0,1,0,0,0,2
+Gg0725,37,63,162,Peso normal,2.- Secondary education,1,1,0,0,1,0,3
+Gg0726,31,64,152,Sobrepeso,2.- Secondary education,5,0,1,0,0,0,1
+Gg0729,21,44,154,Peso normal,3.- Vocational/Technical,5,0,0,0,0,0,3
+Gg0738,19,60,164,Peso normal,1.- Primary education or less,1,0,0,1,0,0,1
+Gg0739,32,78,158,Obesidad,3.- Vocational/Technical,5,1,1,0,0,0,1
+Gg0751,25,58,152,Sobrepeso,3.- Vocational/Technical,5,0,0,0,0,0,3
+Gg0755,21,54,166,Peso normal,3.- Vocational/Technical,5,0,0,0,0,0,4
+Gg0763,18,45,159,Bajo peso,2.- Secondary education,1,0,1,0,0,0,3
+Gg0765,21,50,153,Peso normal,3.- Vocational/Technical,1,1,0,0,0,0,5
+Gg0776,21,69,162,Sobrepeso,3.- Vocational/Technical,2,0,1,0,0,0,1
+Gg0785,23,59,163,Peso normal,4.- Associates degree or higher,1,0,1,0,0,0,2
+Gg0786,28,67,154,Sobrepeso,2.- Secondary education,5,0,0,0,1,0,3
+Gg0789,19,49,153,Peso normal,2.- Secondary education,5,0,0,0,1,0,3
+Gg0791,29,63.8,164,Peso normal,2.- Secondary education,2,0,0,0,0,0,1
+Gg0800,22,50,153,Peso normal,2.- Secondary education,2,0,0,0,0,0,4
+Gg0802,25,58,158,Peso normal,2.- Secondary education,5,0,1,0,0,0,1
+Gg0804,20,62,146,Sobrepeso,2.- Secondary education,2,0,0,0,0,0,1
+Gg0827,30,62,154,Sobrepeso,3.- Vocational/Technical,5,0,1,0,0,0,3
+Gg0829,34,65,161,Sobrepeso,2.- Secondary education,1,0,0,0,1,0,4
+Gg0841,30,52,156,Peso normal,2.- Secondary education,5,0,0,0,0,0,1
+Gg0847,36,80,152,Obesidad,1.- Primary education or less,5,0,1,0,0,0,1
+Gg0854,23,47,147,Peso normal,2.- Secondary education,1,0,0,0,0,0,3
+Gg0857,19,53,160,Peso normal,3.- Vocational/Technical,1,0,0,0,0,0,3
+Gg0871,21,39.2,151,Bajo peso,2.- Secondary education,5,0,1,0,0,0,4
+Gg0895,25,75,152,Obesidad,3.- Vocational/Technical,5,0,0,0,0,0,5
+Gg0897,27,76.1,169,Sobrepeso,3.- Vocational/Technical,1,1,0,0,0,0,5
+Gg0910,22,63,160,Peso normal,2.- Secondary education,1,1,0,0,0,0,2
+Gg0930,23,55,162,Peso normal,3.- Vocational/Technical,1,0,0,0,0,0,3
+Gg0942,23,80,165,Sobrepeso,2.- Secondary education,1,0,0,0,0,0,5
+Gg0945,21,63,167,Peso normal,3.- Vocational/Technical,1,0,1,0,0,0,2
+Gg0946,22,50,151,Peso normal,3.- Vocational/Technical,1,0,0,0,0,0,4
+Gg0947,19,63,158,Sobrepeso,3.- Vocational/Technical,1,1,0,0,0,0,4
+Gg0948,21,45.1,149,Peso normal,3.- Vocational/Technical,1,0,0,0,0,0,6
+Gg0952,24,60,154,Sobrepeso,3.- Vocational/Technical,1,0,0,0,0,0,6

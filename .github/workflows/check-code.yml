@@ -1,0 +1,28 @@
+name: R Code Verification
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Verify repository structure
+        run: |
+          echo "Verifying repository structure..."
+          test -f README.md || exit 1
+          test -f LICENSE || exit 1
+          test -d code || exit 1
+          test -d data || exit 1
+          echo "✓ All required files present"
+      
+      - name: Summary
+        run: |
+          echo "✓ Repository verification complete"

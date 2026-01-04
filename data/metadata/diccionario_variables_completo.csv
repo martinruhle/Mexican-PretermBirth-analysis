@@ -1,0 +1,68 @@
+Diccionario de variables,
+id,Código de identificación
+visita,Número de visita consecutiva
+dg_visita,Edad gestacional en días a la visita 
+sdg_visita,Edad gestacional en semanas a la visita
+dg_parto,Edad gestacional en días al parto
+sdg_parto,Edad gestacional en semanas al parto
+desenlace_parto,Término es > 37 semanas y pretérmino < 37 semanas cumplidas
+edad_cronologicamujer,Edad de la mujer
+peso_pregestacional_kg,Peso en Kg antes de iniciar la gestación
+talla_mujer_cm,talla en cm
+imc_pregestacional,índice de masa corporal antes de iniciar gestación
+imc_pregest_categ,calificación de IMCpregestacional de acuerdo a National Academy of Medicine
+peso_kg,Peso en Kg al momento de la visita
+calories,Consumo de calorias en la fecha de consulta (Recordatorio de 24h)
+calories_fat,Consumo de calorias en lípidos en la fecha de consulta
+carbohydrates,Consumo de hidratos de carbono (g) en la fecha de consulta
+protein,Consumo de proteínas (g) en la fecha de consulta
+fat,Consumo de lípidos (g) en la fecha de consulta
+vitamin_b1,Consumo de vitamina B1 (mg) en la fecha de consulta
+vitamin_b2,Consumo de vitamina B2 (mg) en la fecha de consulta
+vitamin_b6,Consumo de vitamina B6 (mg) en la fecha de consulta
+vitamin_b12,Consumo de vitamina B12 (ug) en la fecha de consulta
+folic_ac_correg,Consumo total de ácido fólico (ug) en la fecha de consulta
+folate,
+folate_dfe,
+folate_food,Consumo de folato en alimentos (ug)
+choline,Consumo total de colina
+cystine,Consumo total de cisteína
+glycine,Consumo total de glicina
+methionine,Consumo total de metionina
+serine,Consumo total de serina
+dietsuppl3mon,Consumo de suplemento dietario 0= No 1= Si
+vitaminsup,Consumo de vitaminas en suplmento 0=No 1= Si
+supintakefreq,Dosis diaria de suplementos (Número de veces al día)
+comp1tribleed,Sangrado del primer trimestre  0=No 1= Si   Desenlace
+compvaginf,Infección cervicovaginal activa 0=No 1=Si
+compsexualinf,Infección de transmisión sexual detectada 0=No  1=Si
+comppreeclam,Preeclampsia 0=No 1=Si
+rpm_preterm,Ruptura prematura de membranas antes de 37 semanas 0=No 1=Si
+rpm,Ruptura prematura de membranas > 37 semanas  0=No 1=Si
+diabetes_gest,Diabetes gestacional 0=No 1=Si
+obito,Óbito o muerto al nacer
+oligohidramnios,Oligohidramnios  0=No   1=Si
+rciu,Retraso en el crecimiento intrauterino 0=No 1=Si
+bajo_peso_nac,Bajo peso al nacer (menos de 2.5 Kg)
+nivel_academico,Nivel educativo 1= Primaria  2=Secundaria   3=Bachillerato 4= Licenciatura
+maritalstat,Estado civil 1=Casada  2= Divorciada 5=Unión libre  
+workouthome,Trabaja fuera de casa 1= Si   2=No
+sex_baby,Sexo del bebé
+birthweightgr,Peso al nacimiento en g
+peso_nacimiento,Calificación de peso al nacer
+pfetal,peso fetal en g al momento de la consulta
+fcf,frecuencia cardíaca fetal
+ccef,perímetro cefálico fetal
+dbip,diámetro biparietal fetal
+cabd,circunferencia abdominal fetal
+longfe,longitud de fémur
+hemoglobin_g_dl,hemoglobina en g/dL
+hemoglobin_alti_adj,hemoglobina ajustada por altitud de CDMX
+anemia_visita,Diagnóstico de anemia
+imc_visita,"IMC en cada visita (primera = pregestacional, resto calculado)"
+lag_peso_kg,Lagged feature para peso
+lag_hemoglobin,Lagged feature para hemoglobina
+lag_imc_visita,Lagged feature para IMC
+rolling_avg_peso,Peso rolling average sobre las últimas 2 visitas
+rolling_avg_imc,IMC rolling averages sobre las últimas 2 visitas
+time_since_first,Tiempo desde la primera visita (en semanas)

@@ -1,0 +1,248 @@
+# ================================================
+# R and RStudio
+# ================================================
+.Rhistory
+.RData
+.Rproj.user
+.Rapp.history
+*.Rproj
+
+# R Environment
+.Renviron
+.Rprofile
+
+# R Session Data
+.RDataTmp
+
+# R temporary files
+*-Ex.R
+*.o
+*.so
+*.dll
+
+# RMarkdown
+*.utf8.md
+*.knit.md
+.Rproj.user
+*_cache/
+*_files/
+
+# Knitr and R Markdown defaults
+.Rmd.user
+.Rmd.md
+
+# ================================================
+# SENSITIVE DATA - NEVER COMMIT
+# ================================================
+# Raw microbiome data (restricted by ethics)
+data/raw/
+data/abundances/
+data/microbiome/
+*abundance*.csv
+*ASV*.csv
+*OTU*.csv
+*taxa*.csv
+
+# Exclude actual microbiome files
+!data/example/abundance_example.csv
+
+# Any files explicitly marked as sensitive
+*_sensitive.*
+*_private.*
+*_restricted.*
+
+# Patient identifiable information
+*_pii.*
+*_identifiable.*
+
+# ================================================
+# LaTeX
+# ================================================
+*.aux
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+
+# Keep the bibliography file
+!references.bib
+
+# ================================================
+# Output Files (optional - generated)
+# ================================================
+# Rendered outputs (usually committed, but can regenerate)
+# Uncomment if you don't want to track rendered documents
+# *.html
+# *.pdf
+
+# Temporary output
+*.tmp
+*.temp
+
+# ================================================
+# Operating Systems
+# ================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+Desktop.ini
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ================================================
+# IDEs and Editors
+# ================================================
+# RStudio
+.Rproj.user/
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ================================================
+# renv (R package management)
+# ================================================
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
+
+# Keep these renv files
+!renv.lock
+!renv/activate.R
+!renv/settings.dcf
+!.Rprofile
+
+# ================================================
+# Backup and Archive
+# ================================================
+*.bak
+*.backup
+*_old.*
+*_backup.*
+backup_*/
+
+# ================================================
+# Logs and Databases
+# ================================================
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+
+# ================================================
+# Package Tarballs
+# ================================================
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+
+# ================================================
+# Large Files
+# ================================================
+# Files over 100MB should use Git LFS
+# Add patterns for known large files here
+
+# ================================================
+# Testing and Development
+# ================================================
+tests/testthat/test-output/
+coverage/
+.coverage
+.pytest_cache/
+
+# ================================================
+# Node.js (if using any JS tools)
+# ================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ================================================
+# Python (if using any Python tools)
+# ================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+.venv/
+
+# ================================================
+# Project Specific
+# ================================================
+# Intermediate analysis files
+intermediate_results/
+scratch/
+exploratory/
+
+# Personal notes
+NOTES.md
+TODO.md
+*_notes.txt
+
+# Drafts
+*_draft.*
+draft_*/
+
+# ================================================
+# GitHub Actions
+# ================================================
+.github/workflows/secrets/
+
+# ================================================
+# Miscellaneous
+# ================================================
+.htaccess
+.env
+.env.local
+.env.*.local
+
+# Certificate files
+*.pem
+*.key
+*.crt
