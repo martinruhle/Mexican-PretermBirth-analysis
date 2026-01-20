@@ -10,9 +10,9 @@
 ## Citation
 
 ```
-Ruhle, M., et al. (2025). Machine Learning Models for Preterm Birth Prediction 
-Using Vaginal Microbiome Profiles in a Mexican Cohort. 
-International Journal of Molecular Sciences. [Manuscript submitted]
+Ruhle, M., et al. (2025). Machine Learning Models for Preterm Birth 
+Prediction Using Vaginal Microbiome Profiles in a Mexican Cohort. 
+[Manuscript in preparation]
 ```
 
 ---
@@ -352,8 +352,8 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 **Principal Investigator:**
 - **Martin Ruhle**
 - Doctoral Program in Biomedical Sciences
-- Instituto Nacional de Perinatología, Mexico City
-- Email: [your_institutional_email@inper.edu.mx]
+- Instituto Nacional de Medicina Genómica, Mexico City
+- Email: martinruhle@gmail.com
 
 **Repository Issues:**
 - GitHub Issues: https://github.com/martinruhle/Mexican-PretermBirth-analysis/issues
