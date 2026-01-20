@@ -21,8 +21,8 @@ Microbiome abundance tables require formal request due to:
 ## Request Process
 
 **Contact:** Martin Ruhle
-**Email:** [your_institutional_email@inper.edu.mx]
-**Institution:** Instituto Nacional de Perinatología
+**Email:** martinruhle@gmail.com
+**Institution:** Instituto Nacional de Medicina Genómica
 
 **Required Documents:**
 1. Research proposal
@@ -36,9 +36,7 @@ Microbiome abundance tables require formal request due to:
 
 All publications must cite:
 ```
-Ruhle, M., et al. (2025). Machine Learning Models for Preterm Birth 
-Prediction Using Vaginal Microbiome Profiles in a Mexican Cohort. 
-International Journal of Molecular Sciences.
+[Manuscript in preparation]
 ```
 
 **Last Updated:** January 2025
