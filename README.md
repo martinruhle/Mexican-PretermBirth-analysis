@@ -3,7 +3,7 @@
 [![R Code Verification](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml/badge.svg)](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Status:** Manuscript submitted to *International Journal of Molecular Sciences* - Special Issue on Pregnancy Complications
+**Status:** Manuscript submitted
 
 ---
 
