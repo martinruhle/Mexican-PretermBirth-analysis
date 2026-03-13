@@ -1,0 +1,677 @@
+```{r permutation_test_setup}
+# =============================================================================
+# PERMUTATION TEST FOR MODEL DISCRIMINATION
+# =============================================================================
+# Tests whether the best model's AUROC significantly exceeds chance by shuffling
+# outcome labels through the FULL nested CV pipeline.
+#
+# Target model: rf_base | Approach3_DataDriven | Full_Microbiome
+# Observed AUROC: 0.813 ± 0.110 post-decontam
+#
+# CRITICAL DESIGN DECISIONS:
+#   1. Labels shuffled at SUBJECT level (not sample level) to preserve
+#      longitudinal correlation structure
+#   2. Shuffled labels propagated to BOTH clinical_data_all AND subject_labels
+#      (subject_labels is used for inner split stratification)
+#   3. Same cv_folds object used (fold membership fixed, only labels change)
+#   4. Full pipeline re-run each permutation: feature selection, CLR, threshold
+#      optimization, model training — no shortcuts
+#
+# RUNTIME ESTIMATE:
+#   ~3-5 min per permutation (single core)
+#   500 permutations: ~25-40 hours sequential
+#   With 8 cores: ~3-5 hours
+#   Recommendation: test with n_perm=10 first, then scale up
+# =============================================================================
+
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(glmnet)
+library(pROC)
+library(PRROC)
+library(parallel)
+library(doParallel)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+n_permutations <- 572
+n_cores <- parallel::detectCores() - 1  # Leave 1 core free for system
+# Adjust n_cores based on your machine's RAM: each worker needs ~2GB
+
+# Observed AUROC from best model 
+observed_auroc <- 0.813  # rf_base | Approach3_DataDriven | Full_Microbiome
+
+# Output directory
+output_dir <- "decontam_results"  # Change if needed
+if(!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+cat(sprintf("Permutation test configuration:\n"))
+cat(sprintf("  Permutations: %d\n", n_permutations))
+cat(sprintf("  Cores available: %d (using %d)\n", 
+            parallel::detectCores(), n_cores))
+cat(sprintf("  Observed AUROC: %.3f\n", observed_auroc))
+cat(sprintf("  Output directory: %s\n\n", output_dir))
+```
+
+```{r permutation_shuffle_function}
+# =============================================================================
+# FUNCTION: Shuffle labels at subject level and propagate to all data objects
+# =============================================================================
+
+shuffle_preterm_labels <- function(clinical_data_all, subject_labels, seed) {
+  # Shuffles preterm labels at the SUBJECT level and applies them consistently
+  # to both clinical_data_all and subject_labels.
+  #
+  # Args:
+  #   clinical_data_all: full clinical dataset (sample-level, has preterm column)
+  #   subject_labels:    subject-level labels (used for inner split stratification)
+  #   seed:              random seed for this permutation
+  #
+  # Returns:
+  #   list with $clinical_data_perm and $subject_labels_perm
+  
+  set.seed(seed)
+  
+  # Step 1: Get unique subject-outcome mapping
+  subject_outcomes <- subject_labels %>%
+    select(id, preterm)
+  
+  # Step 2: Shuffle preterm labels across subjects
+  # This preserves the marginal distribution (same number of PTB/term)
+  shuffled_labels <- subject_outcomes %>%
+    mutate(preterm_shuffled = sample(preterm))
+  
+  # Step 3: Apply shuffled labels to clinical_data_all (sample-level)
+  # Each sample inherits the shuffled label of its subject
+  clinical_data_perm <- clinical_data_all %>%
+    select(-preterm) %>%
+    left_join(
+      shuffled_labels %>% select(id, preterm = preterm_shuffled),
+      by = "id"
+    )
+  
+  # Step 4: Update subject_labels (used for inner split stratification)
+  subject_labels_perm <- shuffled_labels %>%
+    select(id, preterm = preterm_shuffled)
+  
+  return(list(
+    clinical_data_perm = clinical_data_perm,
+    subject_labels_perm = subject_labels_perm
+  ))
+}
+```
+
+```{r permutation_single_run}
+# =============================================================================
+# FUNCTION: Run ONE permutation (full nested CV pipeline)
+# =============================================================================
+
+run_single_permutation <- function(perm_idx,
+                                    clinical_data_all,
+                                    microbiome_data_all,
+                                    subject_labels,
+                                    cv_folds,
+                                    model_spec,
+                                    approach_name = "Approach3_DataDriven",
+                                    microbiome_option = "Full_Microbiome") {
+  # Runs the full nested CV pipeline with permuted labels.
+  # Returns mean AUROC across folds for this permutation.
+  #
+  # This function is designed to be called in parallel.
+  # It suppresses verbose output from train_with_nested_cv.
+  
+  # Generate unique seed for this permutation
+  perm_seed <- 10000 + perm_idx
+  
+  # Shuffle labels
+  shuffled <- shuffle_preterm_labels(clinical_data_all, subject_labels, perm_seed)
+  
+  # CRITICAL: Temporarily replace subject_labels in the function's environment
+  # We need train_with_nested_cv to use shuffled subject_labels for inner splits.
+  # Two options:
+  #   (a) Modify train_with_nested_cv to accept subject_labels as argument
+  #   (b) Assign to the global/parent environment before calling
+  #
+  # Option (a) is cleaner but requires modifying the function.
+  # Option (b) works with the existing function.
+  # We use option (b) here — assign to parent env, restore after.
+  
+  # Save originals
+  original_subject_labels <- subject_labels
+  
+  # Overwrite in the environment where train_with_nested_cv looks for it
+  assign("subject_labels", shuffled$subject_labels_perm, envir = parent.frame())
+  
+  # Run the full pipeline (suppress output)
+  result <- tryCatch({
+    invisible(capture.output({
+      res <- train_with_nested_cv(
+        model_name = "rf_base",
+        model_spec = model_spec,
+        clinical_data_all = shuffled$clinical_data_perm,
+        microbiome_data_all = microbiome_data_all,
+        approach_name = approach_name,
+        microbiome_option = microbiome_option,
+        cv_folds = cv_folds,
+        use_pca = FALSE
+      )
+    }))
+    
+    if(!is.null(res) && !is.null(res$summary)) {
+      res$summary$AUROC_mean
+    } else {
+      NA_real_
+    }
+  }, error = function(e) {
+    warning(sprintf("Permutation %d failed: %s", perm_idx, e$message))
+    NA_real_
+  })
+  
+  # Restore originals
+  assign("subject_labels", original_subject_labels, envir = parent.frame())
+  
+  return(result)
+}
+```
+
+```{r permutation_parallel_wrapper}
+# =============================================================================
+# ALTERNATIVE: Self-contained permutation function for parallel execution
+# =============================================================================
+# When using parallel::parLapply or future, each worker needs ALL objects
+# and functions in its environment. This wrapper is self-contained.
+# =============================================================================
+
+run_permutation_standalone <- function(perm_idx,
+                                        clinical_data_all,
+                                        microbiome_data_all,
+                                        subject_labels_original,
+                                        cv_folds,
+                                        model_spec) {
+  # Self-contained function for parallel execution.
+  # Each worker gets all necessary data and functions.
+  
+  perm_seed <- 10000 + perm_idx
+  set.seed(perm_seed)
+  
+  # ── Step 1: Shuffle labels at subject level ──
+  shuffled_map <- subject_labels_original %>%
+    mutate(preterm_shuffled = sample(preterm))
+  
+  # Apply to clinical data
+  clinical_perm <- clinical_data_all %>%
+    select(-preterm) %>%
+    left_join(
+      shuffled_map %>% select(id, preterm = preterm_shuffled),
+      by = "id"
+    )
+  
+  # Create permuted subject_labels for inner splits
+  subject_labels_perm <- shuffled_map %>%
+    select(id, preterm = preterm_shuffled)
+  
+  # ── Step 2: Assign permuted subject_labels to global env ──
+  # train_with_nested_cv accesses subject_labels from its parent environment
+  # In parallel workers, we need to ensure it's available
+  assign("subject_labels", subject_labels_perm, envir = globalenv())
+  
+  # ── Step 3: Run full pipeline ──
+  result_auroc <- tryCatch({
+    invisible(capture.output({
+      res <- train_with_nested_cv(
+        model_name = "rf_base",
+        model_spec = model_spec,
+        clinical_data_all = clinical_perm,
+        microbiome_data_all = microbiome_data_all,
+        approach_name = "Approach3_DataDriven",
+        microbiome_option = "Full_Microbiome",
+        cv_folds = cv_folds,
+        use_pca = FALSE
+      )
+    }))
+    
+    if(!is.null(res) && !is.null(res$summary)) {
+      res$summary$AUROC_mean
+    } else {
+      NA_real_
+    }
+  }, error = function(e) {
+    NA_real_
+  })
+  
+  # ── Step 4: Restore original subject_labels ──
+  assign("subject_labels", subject_labels_original, envir = globalenv())
+  
+  return(result_auroc)
+}
+```
+
+```{r run_permutation_test_sequential}
+# =============================================================================
+# OPTION A: SEQUENTIAL EXECUTION (simpler, for testing or small n_perm)
+# =============================================================================
+# Use this for initial testing with n_perm = 10-20
+# Switch to parallel (Option B) for n_perm = 500
+# =============================================================================
+
+run_permutation_test_sequential <- function(n_perm,
+                                             clinical_data_all,
+                                             microbiome_data_all,
+                                             subject_labels,
+                                             cv_folds,
+                                             model_spec) {
+  
+  cat(sprintf("\n╔════════════════════════════════════════════════════╗\n"))
+  cat(sprintf("║  PERMUTATION TEST (SEQUENTIAL): %d permutations    ║\n", n_perm))
+  cat(sprintf("╚════════════════════════════════════════════════════╝\n\n"))
+  
+  # Verify data dimensions
+  cat(sprintf("Subjects: %d (PTB: %d, Term: %d)\n",
+              nrow(subject_labels),
+              sum(subject_labels$preterm == "1"),
+              sum(subject_labels$preterm == "0")))
+  cat(sprintf("Samples: %d\n", nrow(clinical_data_all)))
+  
+  null_aurocs <- numeric(n_perm)
+  start_time <- Sys.time()
+  
+  for(perm in 1:n_perm) {
+    
+    perm_start <- Sys.time()
+    
+    null_aurocs[perm] <- run_permutation_standalone(
+      perm_idx = perm,
+      clinical_data_all = clinical_data_all,
+      microbiome_data_all = microbiome_data_all,
+      subject_labels_original = subject_labels,
+      cv_folds = cv_folds,
+      model_spec = model_spec
+    )
+    
+    perm_elapsed <- as.numeric(difftime(Sys.time(), perm_start, units = "mins"))
+    total_elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+    avg_per_perm <- total_elapsed / perm
+    est_remaining <- avg_per_perm * (n_perm - perm)
+    
+    if(perm %% 10 == 0 || perm <= 5) {
+      cat(sprintf("  [%3d/%d] AUROC=%.3f | This: %.1f min | Avg: %.1f min | ETA: %.1f min (%.1f h)\n",
+                  perm, n_perm,
+                  null_aurocs[perm],
+                  perm_elapsed,
+                  avg_per_perm,
+                  est_remaining,
+                  est_remaining / 60))
+    }
+  }
+  
+  total_time <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+  cat(sprintf("\nCompleted in %.1f minutes (%.1f hours)\n", total_time, total_time / 60))
+  
+  return(null_aurocs)
+}
+```
+
+```{r run_permutation_test_parallel}
+# =============================================================================
+# OPTION B: PARALLEL EXECUTION (recommended for n_perm = 500)
+# =============================================================================
+
+run_permutation_test_parallel <- function(n_perm,
+                                           n_cores,
+                                           clinical_data_all,
+                                           microbiome_data_all,
+                                           subject_labels,
+                                           cv_folds,
+                                           model_spec) {
+  
+  cat(sprintf("\n╔════════════════════════════════════════════════════╗\n"))
+  cat(sprintf("║  PERMUTATION TEST (PARALLEL): %d permutations      ║\n", n_perm))
+  cat(sprintf("║  Using %d cores                                     ║\n", n_cores))
+  cat(sprintf("╚════════════════════════════════════════════════════╝\n\n"))
+  
+  cat(sprintf("Subjects: %d (PTB: %d, Term: %d)\n",
+              nrow(subject_labels),
+              sum(subject_labels$preterm == "1"),
+              sum(subject_labels$preterm == "0")))
+  cat(sprintf("Samples: %d\n\n", nrow(clinical_data_all)))
+  
+  start_time <- Sys.time()
+  
+  # ── Create cluster ──
+  cl <- makeCluster(n_cores)
+  
+  # ── Export ALL required objects to workers ──
+  # This includes: data, functions, and loaded packages
+  clusterExport(cl, varlist = c(
+    # Data objects
+    "clinical_data_all",
+    "microbiome_data_all", 
+    "subject_labels",
+    "cv_folds",
+    "model_spec",
+    # Functions from the main workflow
+    "train_with_nested_cv",
+    "detect_prob_col",
+    "apply_clr_transform",
+    "optimize_threshold_cv",
+    "run_ancombc_on_fold",
+    "calculate_univariate_association",
+    "run_permutation_standalone",
+    # Any other objects train_with_nested_cv references from global env
+    "micro_genus_full"  # If referenced; remove if not needed
+  ), envir = environment())
+  
+  # ── Load required packages on each worker ──
+  clusterEvalQ(cl, {
+    library(tidyverse)
+    library(tidymodels)
+    library(ranger)
+    library(glmnet)
+    library(pROC)
+    library(PRROC)
+  })
+  
+  cat("Cluster initialized. Starting permutations...\n\n")
+  
+  # ── Run permutations in parallel ──
+  # Process in batches for progress reporting
+  batch_size <- min(50, n_perm)
+  n_batches <- ceiling(n_perm / batch_size)
+  null_aurocs <- numeric(n_perm)
+  
+  for(batch in 1:n_batches) {
+    batch_start_idx <- (batch - 1) * batch_size + 1
+    batch_end_idx <- min(batch * batch_size, n_perm)
+    batch_indices <- batch_start_idx:batch_end_idx
+    
+    batch_results <- parLapply(cl, batch_indices, function(perm_idx) {
+      run_permutation_standalone(
+        perm_idx = perm_idx,
+        clinical_data_all = clinical_data_all,
+        microbiome_data_all = microbiome_data_all,
+        subject_labels_original = subject_labels,
+        cv_folds = cv_folds,
+        model_spec = model_spec
+      )
+    })
+    
+    null_aurocs[batch_indices] <- unlist(batch_results)
+    
+    elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+    completed <- batch_end_idx
+    avg_per_perm <- elapsed / completed
+    est_remaining <- avg_per_perm * (n_perm - completed)
+    
+    cat(sprintf("  Batch %d/%d complete [%d/%d perms] | Elapsed: %.1f min | ETA: %.1f min (%.1f h)\n",
+                batch, n_batches, completed, n_perm,
+                elapsed, est_remaining, est_remaining / 60))
+    
+    # Save intermediate results (crash protection)
+    saveRDS(
+      list(
+        null_aurocs = null_aurocs[1:completed],
+        n_completed = completed,
+        n_total = n_perm,
+        elapsed_min = elapsed
+      ),
+      file.path(output_dir, "permutation_checkpoint.rds")
+    )
+  }
+  
+  # ── Cleanup ──
+  stopCluster(cl)
+  
+  total_time <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+  cat(sprintf("\nCompleted %d permutations in %.1f minutes (%.1f hours)\n",
+              n_perm, total_time, total_time / 60))
+  
+  return(null_aurocs)
+}
+```
+
+```{r execute_permutation_test}
+# =============================================================================
+# EXECUTE THE PERMUTATION TEST
+# =============================================================================
+# STEP 1: Quick test run (10 permutations, sequential)
+# STEP 2: Full run (500 permutations, parallel)
+# =============================================================================
+
+# ── STEP 1: Test run (UNCOMMENT TO RUN) ──
+cat("=== TEST RUN: 10 permutations (sequential) ===\n")
+test_aurocs <- run_permutation_test_sequential(
+ n_perm = 10,
+ clinical_data_all = approach3_clinical_all,  # Approach 3 clinical data
+ microbiome_data_all = micro_genus_full,       # Full microbiome
+ subject_labels = subject_labels,              # Subject-level labels
+ cv_folds = cv_folds,                          # Same CV folds as primary analysis
+ model_spec = rf_spec                          # Random Forest spec
+)
+cat(sprintf("\nTest null AUROCs: %s\n", 
+           paste(round(test_aurocs, 3), collapse = ", ")))
+cat(sprintf("Test null mean: %.3f ± %.3f\n", mean(test_aurocs), sd(test_aurocs)))
+
+# ── STEP 2: Full run (UNCOMMENT TO RUN) ──
+null_aurocs <- run_permutation_test_parallel(
+  n_perm = n_permutations,
+  n_cores = n_cores,
+  clinical_data_all = approach3_clinical_all,  # Approach 3 clinical data
+  microbiome_data_all = micro_genus_full,       # Full microbiome
+  subject_labels = subject_labels,              # Subject-level labels
+  cv_folds = cv_folds,                          # Same CV folds
+  model_spec = rf_spec                          # Random Forest spec
+)
+```
+
+```{r permutation_results}
+# =============================================================================
+# ANALYZE AND REPORT PERMUTATION TEST RESULTS
+# =============================================================================
+null_aurocs <- test_aurocs
+
+# Remove any failed permutations (NAs)
+valid_aurocs <- null_aurocs[!is.na(null_aurocs)]
+n_valid <- length(valid_aurocs)
+n_failed <- sum(is.na(null_aurocs))
+
+if(n_failed > 0) {
+  cat(sprintf("WARNING: %d/%d permutations failed (%.1f%%)\n",
+              n_failed, n_permutations, 100 * n_failed / n_permutations))
+  cat("Results based on valid permutations only.\n\n")
+}
+
+# ── Calculate permutation p-value ──
+# One-sided test: proportion of null AUROCs >= observed
+perm_p_value <- (sum(valid_aurocs >= observed_auroc) + 1) / (n_valid + 1)
+# +1/+1 correction: conservative estimate (Phipson & Smyth, 2010)
+
+# ── Summary statistics ──
+cat("\n╔════════════════════════════════════════════════════╗\n")
+cat("║         PERMUTATION TEST RESULTS                   ║\n")
+cat("╚════════════════════════════════════════════════════╝\n\n")
+
+cat(sprintf("  Model: rf_base | Approach3_DataDriven | Full_Microbiome\n"))
+cat(sprintf("  Observed AUROC:      %.3f\n", observed_auroc))
+cat(sprintf("  Valid permutations:  %d / %d\n", n_valid, n_permutations))
+cat(sprintf("\n  Null distribution:\n"))
+cat(sprintf("    Mean ± SD:         %.3f ± %.3f\n", mean(valid_aurocs), sd(valid_aurocs)))
+cat(sprintf("    Median:            %.3f\n", median(valid_aurocs)))
+cat(sprintf("    Range:             %.3f – %.3f\n", min(valid_aurocs), max(valid_aurocs)))
+cat(sprintf("    IQR:               %.3f – %.3f\n",
+            quantile(valid_aurocs, 0.25), quantile(valid_aurocs, 0.75)))
+cat(sprintf("\n  Permutation p-value: %.4f\n", perm_p_value))
+cat(sprintf("    (%d of %d null AUROCs ≥ observed %.3f)\n",
+            sum(valid_aurocs >= observed_auroc), n_valid, observed_auroc))
+
+if(perm_p_value < 0.05) {
+  cat("\n  ✓ CONCLUSION: Model discrimination significantly exceeds chance (p < 0.05)\n")
+} else {
+  cat("\n  ✗ CONCLUSION: Model discrimination does NOT significantly exceed chance\n")
+}
+
+# ── Save results ──
+perm_results_df <- tibble(
+  permutation = 1:n_permutations,
+  null_auroc = null_aurocs,
+  valid = !is.na(null_aurocs)
+)
+
+write_csv(perm_results_df, 
+          file.path(output_dir, "permutation_null_distribution.csv"))
+
+perm_summary <- tibble(
+  observed_auroc = observed_auroc,
+  null_mean = mean(valid_aurocs),
+  null_sd = sd(valid_aurocs),
+  null_median = median(valid_aurocs),
+  null_min = min(valid_aurocs),
+  null_max = max(valid_aurocs),
+  n_permutations = n_permutations,
+  n_valid = n_valid,
+  n_exceeding = sum(valid_aurocs >= observed_auroc),
+  p_value = perm_p_value
+)
+
+write_csv(perm_summary,
+          file.path(output_dir, "permutation_test_summary.csv"))
+
+cat(sprintf("\nResults saved to:\n"))
+cat(sprintf("  %s/permutation_null_distribution.csv\n", output_dir))
+cat(sprintf("  %s/permutation_test_summary.csv\n", output_dir))
+```
+
+```{r permutation_plot}
+# =============================================================================
+# VISUALIZATION: Null distribution with observed AUROC
+# =============================================================================
+
+library(ggplot2)
+
+# Prepare data
+plot_df <- tibble(null_auroc = valid_aurocs)
+
+# Determine sensible x-axis range
+x_min <- min(0.3, min(valid_aurocs) - 0.05)
+x_max <- max(observed_auroc + 0.05, max(valid_aurocs) + 0.05)
+
+p_perm <- ggplot(plot_df, aes(x = null_auroc)) +
+  # Null distribution
+  geom_histogram(bins = 30, fill = "gray70", color = "white", alpha = 0.8) +
+  # Chance line (AUROC = 0.5)
+  geom_vline(xintercept = 0.5, color = "gray40", 
+             linewidth = 0.8, linetype = "dashed") +
+  # Observed AUROC
+  geom_vline(xintercept = observed_auroc, color = "#D32F2F",
+             linewidth = 1.3, linetype = "solid") +
+  # Annotations
+  annotate("text",
+           x = observed_auroc - 0.02, y = Inf,
+           label = sprintf("Observed\nAUROC = %.3f", observed_auroc),
+           hjust = 1, vjust = 2, color = "#D32F2F", 
+           size = 3.8, fontface = "bold") +
+  annotate("text",
+           x = 0.5, y = Inf,
+           label = "Chance\n(AUROC = 0.5)",
+           hjust = 0.5, vjust = 1.2, color = "gray40", 
+           size = 3, fontface = "italic") +
+  # p-value annotation
+  annotate("label",
+           x = x_max - 0.02, y = Inf,
+           label = sprintf("p = %.4f\n(%d/%d ≥ observed)",
+                           perm_p_value,
+                           sum(valid_aurocs >= observed_auroc),
+                           n_valid),
+           hjust = 1, vjust = 2, 
+           fill = ifelse(perm_p_value < 0.05, "#C8E6C9", "#FFCDD2"),
+           color = "black", size = 3.2, fontface = "bold",
+           label.size = 0.5) +
+  # Axes and theme
+  scale_x_continuous(limits = c(x_min, x_max)) +
+  labs(
+    title = "Permutation Test: Model Discrimination vs. Chance",
+    subtitle = sprintf("rf_base | Approach 3 | Full Microbiome | %d permutations with subject-level label shuffling",
+                       n_valid),
+    x = "Mean AUROC (null distribution)",
+    y = "Count",
+    caption = sprintf("Null: %.3f ± %.3f | Observed: %.3f | p = %.4f",
+                      mean(valid_aurocs), sd(valid_aurocs), 
+                      observed_auroc, perm_p_value)
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 13),
+    plot.subtitle = element_text(size = 10, color = "gray30"),
+    plot.caption = element_text(size = 9, color = "gray40"),
+    panel.grid.minor = element_blank()
+  )
+
+# Save
+ggsave(file.path(output_dir, "permutation_test_histogram.pdf"), p_perm,
+       width = 8, height = 5)
+ggsave(file.path(output_dir, "permutation_test_histogram.png"), p_perm,
+       width = 8, height = 5, dpi = 300)
+
+cat("Plots saved.\n")
+print(p_perm)
+```
+
+```{r supplementary_fold_metrics}
+# =============================================================================
+# SUPPLEMENTARY TABLE: Per-fold metrics for best model
+# =============================================================================
+# The reviewer also requested: "Per-fold metrics should appear in a
+# supplementary table."
+# =============================================================================
+
+# Extract fold-level results from the best model
+# Assumes cv_results_all is still in memory from primary analysis
+best_model_idx <- which(sapply(cv_results_all, function(x) {
+  x$model_name == "rf_base" & 
+  x$approach == "Approach3_DataDriven" & 
+  x$microbiome == "Full_Microbiome"
+}))
+
+if(length(best_model_idx) > 0) {
+  best_fold_results <- cv_results_all[[best_model_idx[1]]]$fold_results
+  
+  cat("\n=== SUPPLEMENTARY TABLE: Per-Fold Metrics ===\n\n")
+  cat("Model: rf_base | Approach3_DataDriven | Full_Microbiome\n\n")
+  
+  # Format for display
+  fold_table <- best_fold_results %>%
+    select(fold, n_test, n_ptb, threshold, AUROC, PRAUC, 
+           Sensitivity, Specificity, Balanced_Accuracy, Youden) %>%
+    mutate(across(c(threshold, AUROC, PRAUC, Sensitivity, Specificity,
+                    Balanced_Accuracy, Youden), ~round(., 3)))
+  
+  print(fold_table)
+  
+  # Add summary row
+  cat("\n--- Summary (mean ± SD) ---\n")
+  summary_row <- fold_table %>%
+    summarize(
+      across(c(threshold, AUROC, PRAUC, Sensitivity, Specificity,
+               Balanced_Accuracy, Youden),
+             list(mean = ~mean(., na.rm = TRUE),
+                  sd = ~sd(., na.rm = TRUE)))
+    )
+  
+  cat(sprintf("  AUROC:      %.3f ± %.3f\n", summary_row$AUROC_mean, summary_row$AUROC_sd))
+  cat(sprintf("  PRAUC:      %.3f ± %.3f\n", summary_row$PRAUC_mean, summary_row$PRAUC_sd))
+  cat(sprintf("  Sens:       %.3f ± %.3f\n", summary_row$Sensitivity_mean, summary_row$Sensitivity_sd))
+  cat(sprintf("  Spec:       %.3f ± %.3f\n", summary_row$Specificity_mean, summary_row$Specificity_sd))
+  cat(sprintf("  Bal Acc:    %.3f ± %.3f\n", summary_row$Balanced_Accuracy_mean, summary_row$Balanced_Accuracy_sd))
+  cat(sprintf("  Threshold:  %.3f ± %.3f\n", summary_row$threshold_mean, summary_row$threshold_sd))
+  
+  # Save as CSV for supplementary material
+  write_csv(fold_table, file.path(output_dir, "supplementary_per_fold_metrics.csv"))
+  cat(sprintf("\nSaved to: %s/supplementary_per_fold_metrics.csv\n", output_dir))
+  
+} else {
+  cat("WARNING: Best model not found in cv_results_all.\n")
+  cat("Run the primary nested CV analysis first.\n")
+}
+```
