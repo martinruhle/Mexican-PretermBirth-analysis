@@ -10,9 +10,7 @@
 ## Citation
 
 ```
-Ruhle, M., et al. (2025). Machine Learning Models for Preterm Birth 
-Prediction Using Vaginal Microbiome Profiles in a Mexican Cohort. 
-[Manuscript in preparation]
+Ruhle, M., et al. (2025). Leakage-aware machine learning reveals structured clinical and vaginal microbiome patterns associated with preterm birth in a Mexican cohort. Front. Glob. Women’s Health 7:1799518. doi: 10.3389/fgwh.2026.1799518
 ```
 
 ---
