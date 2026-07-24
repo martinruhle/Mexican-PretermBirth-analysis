@@ -1,0 +1,154 @@
+# =============================================================================
+# config/config.yml  —  ptbpredict
+# -----------------------------------------------------------------------------
+# Perfil por defecto = cohorte mexicana original (n=43 sujetos, 110 muestras, 14 PTB).
+# TODO valor fue verificado contra analysis/integrated_preterm_prediction_workflow.Rmd
+# (chunks localizados por nombre) y contra los datos reales con R 4.4.2 (Chat 1.5).
+#
+# Estatus por campo:  [codigo]=verificable en el .Rmd   [datos]=verificable en datos
+#                     [supuesto]=decision de diseno/convencion (no derivable)
+#
+# Un laboratorio con datos propios copia este bloque a un perfil nuevo (p.ej. lab_colega:),
+# ajusta rutas y nombres de columnas, y corre PTB_PROFILE=lab_colega. No edita R/.
+# Lectura:  cfg <- config::get(config = Sys.getenv("PTB_PROFILE","default"), file = "config/config.yml")
+# =============================================================================
+default:
+
+  data:
+    # Rutas relativas al root (usar here::here()); NUNCA setwd(). Los datos reales viven
+    # FUERA de git (data/raw/ esta gitignored): hay que copiarlos ahi antes de correr.
+    matrix_path:      "data/raw/genus_rel_filtered_2025-05-25.csv"      # [codigo L604] matriz ancha: 97 taxa (rel) + index + id + 68 clinicas
+    abs_matrix_path:  "data/raw/genus_rel_filtered_2025-05-25_abs.csv"  # [codigo L3386][datos] conteos absolutos (97 taxa) — REQUERIDO por ANCOM-BC2
+    metadata_path:    "data/raw/metadata_eugenia_long.csv"             # [codigo L605] metadata longitudinal (figuras de poblacion)
+    participant_path: null                                             # [codigo L606] participant_data_clean.csv se CARGA pero NO se usa -> null
+    data_dictionary:  "config/data_dictionary.csv"                     # [supuesto] contrato de datos + fuente de la lista de taxa
+    microbiome_columns_from: "data_dictionary"                         # [supuesto] dominios por lista explicita (role=microbiome), NO por regex ^g__ ni por posicion
+
+  columns:
+    subject_id: "id"              # [codigo+datos col99]  split a nivel sujeto
+    sample_id:  "index"           # [codigo+datos col98]  muestra longitudinal
+    outcome:    "preterm"         # [codigo L611]  binario 0/1 (esta en col 159 de la matriz)
+    outcome_positive: "1"         # [codigo L636/L3057]  nivel positivo
+    gestational_age: "sdg_parto"  # [codigo L611]  SDG al parto
+    visit_ga:   "sdg_visita"      # [codigo L2060]  SDG al muestreo
+    preterm_week_cutoff: 37       # [supuesto/prosa L1527]  'preterm' viene precomputado en los datos; 37 sem solo aparece en prosa
+
+  approaches:
+    # ---- Approach 1: DREAM (minimo clinico, 2 vars) ----------------------------------
+    approach1_dream:              # [codigo L2059]
+      - "sdg_visita"
+      - "edad_cronologicamujer"
+
+    # ---- Approach 2: Literatura (CANDIDATOS + REGLAS; NO lista fija de 10) ------------
+    # [codigo L2134] El resultado se recomputa por dataset -> se guardan candidatos + reglas.
+    approach2_literature:
+      core_vars:                  # siempre presentes (evidencia en .Rmd: sdg_visita="Essential", edad="Very Strong")
+        - "sdg_visita"
+        - "edad_cronologicamujer"
+      candidates:                 # variable: fuerza_de_evidencia   [codigo L2141-2163]
+        imc_pregestacional:     "Very Strong"
+        peso_pregestacional_kg: "Strong"
+        comp1tribleed:          "Very Strong"   # <- faltaba en el borrador del playbook (recuperado)
+        oligohidramnios:        "Strong"
+        diabetes_gest:          "Strong"
+        comppreeclam:           "Very Strong"
+        rpm:                    "Very Strong"
+        compvaginf:             "Strong"
+        anemia_visita:          "Strong"
+        hemoglobin_alti_adj:    "Moderate"
+        folic_ac_correg:        "Moderate"
+        dietsuppl3mon:          "Moderate"
+        nivel_academico:        "Moderate"
+        maritalstat:            "Moderate"
+        ses_risk_score:         "Strong"        # feature de ingenieria (chunk feature_engineering L2014)
+      rules:
+        completeness_min:    0.80   # [codigo L2190]  >=80% sujetos completos
+        collinearity_cutoff: 0.95   # [codigo L2203]  |r|>0.95 (la prosa/mensajes dicen 0.85 -> gana el codigo)
+        target_n:            10     # [codigo L2252]  top-10 tras filtros (puede quedar < si se descartan vars)
+
+    # ---- Approach 3: Data-driven (screening univariado POR FOLD) ----------------------
+    # [codigo L3260-3340] Valores del CODIGO. La prosa (L2368-2369) dice p<0.20 y max 12 y
+    # variables obligatorias sdg_visita/edad/imc -> NO coincide con el codigo (corregir prosa en Chat 4).
+    approach3_datadriven:
+      method: "univariate_screen"
+      p_threshold: 0.30              # [codigo L3304]  umbral liberal (prosa dice 0.20)
+      max_candidates: 15             # [codigo L3305]  top-N antes de resolver colinealidad
+      target_n: 10                   # [codigo L3339]  max_features final (prosa dice 12)
+      completeness_subjects_min: 0.80  # [codigo L3272]
+      completeness_samples_min:  0.70  # [codigo L3273]
+      collinearity_cutoff: 0.95        # [codigo L3319]
+
+  preprocessing:
+    # >>> PSEUDOCOUNT DEL CLR — SIN RESOLVER. Problema de RESULTADOS, no de config. <<<
+    # Datos (abundancias relativas): min no-cero = 2.1e-5, mediana no-cero = 2.2e-3, 80.7% ceros, rowSums=1.
+    # El .Rmd usa 0.65 (escala de CONTEOS): ~290x la abundancia tipica, 99.3% de las celdas <0.65,
+    # aplasta ~4500x la varianza log-ratio (Prevotella/Ureaplasma/Sneathia pierden 700-1600x su SD;
+    # Lactobacillus/Gardnerella solo 3-6x). Valor correcto < 2.1e-5. Opciones: 1e-6 | ~1e-5 |
+    # zCompositions::cmultRepl. EXIGE re-correr y comparar contra baseline (playbook §9) antes de fijarlo.
+    # R/clr.R (Chat 2) DEBE validar !is.null(clr_pseudocount) y detenerse con mensaje claro si sigue null.
+    clr_pseudocount: null            # PENDIENTE (el .Rmd hoy tiene 0.65 hardcodeado en L1494 y L3073)
+    prevalence_filter:   0.05        # [codigo L1390]  genero presente en >=5% de muestras
+    completeness_min:    0.80        # [codigo L2190]
+    collinearity_cutoff: 0.95        # [codigo L2203]
+    # Filtro de contaminantes (hoy hardcodeado en chunk decontaminant_filter L1439).
+    # Salter et al. 2014 / Eisenhofer et al. 2019. [datos] los 10 estan presentes en la matriz.
+    contaminant_genera:
+      - "Methylobacterium"
+      - "Methylorubrum"
+      - "Ralstonia"
+      - "Mesorhizobium"
+      - "Microbacterium"
+      - "Bradyrhizobium"
+      - "Sphingomonas"
+      - "Pseudomonas"
+      - "Acinetobacter"
+      - "o__Chloroplast"
+
+  cv:                                # [codigo] NO hay inner k-fold; el loop interno es un split 70/30
+    outer_folds: 5                   # [codigo L2891]  vfold_cv(subject_labels, v=5, strata=preterm)
+    inner_train_prop: 0.70           # [codigo L3467]  initial_split(prop=0.70) -> inner_train / inner_val
+    strata: "preterm"                # [codigo L2891 / L3467]
+    threshold_method: "youden"       # [codigo L3087 / L3587]  youden | f1 | balanced_accuracy
+    seed: 123                        # [codigo L2882/3239/3466/3555]  semilla del pipeline
+    # DECISION: unificado a 123. El .Rmd todavia tiene set.seed(42) en L3902 (fit del modelo final
+    # sobre todos los datos, usado por la Figura 5). PENDIENTE editar ese 42 -> 123 al modularizar:
+    # cambia las importancias de la Fig.5, por lo que exige rerun + comparacion contra baseline.
+
+  models:                            # [codigo] SOLO los 2 modelos que se ejecutan (models_to_run L4025).
+    # models_spec (L2719) define ademas xgb_base / tree_base / rf_pca, pero NO se corren.
+    # => 12 combinaciones (2 modelos x 3 approaches x 2 microbioma), NO 18 (comentario obsoleto en L4013/L2823).
+    rf_base:
+      engine: "ranger"
+      mtry: 4                        # [codigo L2744]
+      trees: 500                     # [codigo L2745]
+      min_n: 10                      # [codigo L2746]
+      importance: "impurity"         # [codigo L2749]
+      num_threads: 1                 # [codigo L2749]
+    glmnet_base:
+      engine: "glmnet"
+      penalty: 0.01                  # [codigo L2729]
+      mixture: 0.5                   # [codigo L2730]
+
+  microbiome_options: ["ANCOM_Taxa", "Full_Microbiome"]   # [codigo L4058 / L4063]
+
+  feature_selection:
+    # ANCOM-BC2 por fold (rama ANCOM_Taxa), hardcodeado en run_ancombc_on_fold. [codigo L3181-3209]
+    # Corre sobre CONTEOS (abs_matrix_path) filtrados a los generos limpios (post-decontaminante).
+    ancombc:
+      fix_formula: "preterm + edad_cronologicamujer + imc_pregestacional"   # [codigo L3181]
+      group: "preterm"                 # [codigo L3191]
+      p_adj_method: "BH"               # [codigo L3186]
+      alpha: 0.10                      # [codigo L3194]
+      significance_threshold: 0.10     # [codigo L3205]  taxa con p_preterm1 < 0.10
+      prv_cut: 0.05                    # [codigo L3190]
+      lib_cut: 1000                    # [codigo L3187]
+      pseudo: 0                        # [codigo L3188]
+      pseudo_sens: true                # [codigo L3189]
+      struc_zero: false                # [codigo L3192]
+      neg_lb: false                    # [codigo L3193]
+      exclude_taxa: ["o__Chloroplast"] # [codigo L3206]
+      fallback_top_n: 5                # [codigo L3431]  si no hay taxa significativos: top-5 por abundancia media
+
+  output:
+    dir: "analysis/_output"          # [supuesto]  figuras/tablas generadas (gitignored)
+    save_folds: true                 # [supuesto]  guardar splits para replicacion exacta

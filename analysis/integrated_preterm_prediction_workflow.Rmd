@@ -393,7 +393,7 @@ Each outer test fold's threshold is optimized using only that fold's correspondi
 All preprocessing steps occurred within CV folds to prevent data leakage:
 
 - Feature selection (Approach 3 only): Univariate screening p-values calculated using only inner training data
-- CLR transformation: Geometric mean calculated from inner training set only; both inner validation and outer test sets transformed using this training-derived geometric mean
+- CLR transformation: Compositional per-sample centered log-ratio — each sample (row) is closed by the geometric mean of its own taxa, applied within each fold. Because per-sample CLR is row-local it introduces no train→test leakage. Zeros are replaced first with unsupervised Bayesian-multiplicative estimates (zCompositions::cmultRepl), learned once on the full microbiome (outcome-blind)
 - Imputation: For missing clinical variables, imputation (median for continuous, mode for categorical) used training set statistics only
 - SMOTE: NOT USED in this analysis due to extremely small minority class (n=14 PTB cases). With only ~3 PTB case per outer test fold and ~11 in outer training, synthetic oversampling risks creating unrealistic interpolated samples that don't represent true biological variation. Instead, we relied on:
 
@@ -595,14 +595,15 @@ cat("All packages loaded successfully!\n",
 **Sample**: Each row represents one vaginal swab sample; multiple samples per subject collected longitudinally during pregnancy.
 
 ```{r load_data}
-# Load complete dataset
-file_path <- "C:/Users/marti/Documents/Datos_mexicanos/genus_rel_filtered_2025-05-25.csv"
+# Load datasets
+# Set working directory
+working_directory <- "C:/Users/marti/Documents/Datos_mexicanos/"
+setwd(working_directory)
 
-if(!file.exists(file_path)) {
-  stop("Data file not found. Please check the path: ", file_path)
-}
-
-complete_data <- read.csv(file_path)
+# Load datasets
+complete_data <- read_csv("genus_rel_filtered_2025-05-25.csv")
+metadata_long <- read_csv("metadata_eugenia_long.csv")
+participant_data <- read_csv("participant_data_clean.csv")
 
 # Separate data domains
 micro_data <- complete_data[, 1:99]
@@ -623,7 +624,7 @@ cat("=== DATA IMPORT SUMMARY ===\n\n",
 
 ```
 
-## 3.2 Study Population Characteristics
+## Study Population Characteristics
 
 **Purpose**: Characterize study population to understand outcome distribution and justify methodological choices (e.g., case weights for class imbalance).
 
@@ -706,6 +707,387 @@ ggplot(subject_outcomes, aes(x = preterm_status, y = sdg_parto, fill = preterm_s
 ```
 
 **Key Finding**: Enriched case-control design provides increased statistical power but requires case weighting in models to reflect true population prevalence for generalizable predictions.
+
+
+## Study Cohort Overview and Longitudinal Sampling Design
+
+**Purpose**: Provide comprehensive visualization of study design, participant characteristics, and sampling structure. This figure establishes the nested case-control framework, demonstrates the heterogeneous longitudinal sampling pattern, and shows the distribution of microbiome samples across pregnancy trimesters.
+
+**Key aspects**:
+- **Panel A**: Flowchart showing study enrollment and outcome classification
+- **Panel B**: Distribution of microbiome samples across gestational trimesters, stratified by birth outcome
+- **Panel C**: Swimmer plot illustrating individual-level longitudinal trajectories from first sample to delivery
+
+```{r}
+# Color palette (consistent with manuscript)
+outcome_colors <- c("Term" = "#619CFF", "Preterm" = "#F8766D")
+
+# Subject-level summary for swimmer plot
+swimmer_data <- metadata_long %>%
+  group_by(id) %>%
+  summarize(
+    outcome = ifelse(any(preterm == 1), "Preterm", "Term"),
+    ga_delivery = first(sdg_parto),
+    first_sample_ga = min(sdg_visita),
+    last_sample_ga = max(sdg_visita),
+    n_samples = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(outcome, ga_delivery) %>%
+  mutate(
+    subject_id = factor(id, levels = id),  # Preserve ordering
+    subject_number = row_number()
+  )
+
+# Individual sample data for swimmer plot points
+sample_points <- metadata_long %>%
+  left_join(swimmer_data %>% select(id, subject_number, outcome), by = "id") %>%
+  select(id, subject_number, outcome, sdg_visita)
+
+# Trimester classification for Panel C
+samples_by_trimester <- metadata_long %>%
+  mutate(
+    outcome = ifelse(preterm == 1, "Preterm", "Term"),
+    trimester = case_when(
+      sdg_visita < 13 ~ "First\n(< 13 weeks)",
+      sdg_visita < 27 ~ "Second\n(13-26 weeks)",
+      TRUE ~ "Third\n(≥ 27 weeks)"
+    ),
+    trimester = factor(trimester, levels = c("First\n(< 13 weeks)", 
+                                               "Second\n(13-26 weeks)", 
+                                               "Third\n(≥ 27 weeks)"))
+  )
+
+# Summary statistics for annotations
+n_total_subjects <- nrow(swimmer_data)
+n_preterm <- sum(swimmer_data$outcome == "Preterm")
+n_term <- sum(swimmer_data$outcome == "Term")
+n_total_samples <- nrow(metadata_long)
+n_preterm_samples <- sum(metadata_long$preterm == 1)
+n_term_samples <- sum(metadata_long$preterm == 0)
+prevalence_subject <- round(100 * n_preterm / n_total_subjects, 1)
+prevalence_sample <- round(100 * n_preterm_samples / n_total_samples, 1)
+mean_samples <- round(mean(swimmer_data$n_samples), 1)
+range_samples <- paste(min(swimmer_data$n_samples), "-", max(swimmer_data$n_samples))
+
+cat(
+  "\n", paste(rep("=", 70), collapse = ""), "\n",
+  "FIGURE 1: STUDY COHORT AND SAMPLING STRUCTURE\n",
+  paste(rep("=", 70), collapse = ""), "\n\n",
+  
+  "Subject-level summary:\n",
+  sprintf("  - Total participants: %d\n", n_total_subjects),
+  sprintf("  - Preterm births: %d (%.1f%%)\n", n_preterm, prevalence_subject),
+  sprintf("  - Term births: %d (%.1f%%)\n", n_term, 100 - prevalence_subject),
+  sprintf("  - Samples per subject: mean = %.1f, range = %s\n\n", mean_samples, range_samples),
+  
+  "Sample-level summary:\n",
+  sprintf("  - Total samples: %d\n", n_total_samples),
+  sprintf("  - Preterm-associated: %d (%.1f%%)\n", n_preterm_samples, prevalence_sample),
+  sprintf("  - Term-associated: %d (%.1f%%)\n", n_term_samples, 100 - prevalence_sample),
+  "\n"
+)
+```
+
+### Panel A: Study Design Flowchart
+
+```{r figure1_panel_a, fig.width=6, fig.height=4}
+# Create flowchart using ggplot with text annotations
+# This approach provides publication-quality output without external dependencies
+
+panel_a <- ggplot() + 
+  # Set up coordinate system
+  xlim(0, 10) + ylim(0, 10) +
+  
+  # Box 1: Total enrollment
+  annotate("rect", xmin = 2, xmax = 8, ymin = 8.5, ymax = 9.5, 
+           fill = "white", color = "black", size = 1) +
+  annotate("text", x = 5, y = 9, 
+           label = sprintf("Total Enrollment\nn = %d pregnant women", n_total_subjects),
+           size = 3.5, fontface = "bold") +
+  
+  # Arrow 1
+  annotate("segment", x = 5, xend = 5, y = 8.5, yend = 7.5,
+           arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+           size = 0.8) +
+  
+  # Box 2: Study design
+  annotate("rect", xmin = 1.5, xmax = 8.5, ymin = 6.5, ymax = 7.5, 
+           fill = "#E8F4F8", color = "black", size = 1) +
+  annotate("text", x = 5, y = 7, 
+           label = "Nested Case-Control Design\nLongitudinal Vaginal Microbiome Sampling",
+           size = 3.2, fontface = "italic") +
+  
+  # Arrow 2 (split into two)
+  annotate("segment", x = 5, xend = 5, y = 6.5, yend = 6,
+           size = 0.8) +
+  annotate("segment", x = 5, xend = 2.5, y = 6, yend = 6,
+           size = 0.8) +
+  annotate("segment", x = 5, xend = 7.5, y = 6, yend = 6,
+           size = 0.8) +
+  annotate("segment", x = 2.5, xend = 2.5, y = 6, yend = 5.3,
+           arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+           size = 0.8) +
+  annotate("segment", x = 7.5, xend = 7.5, y = 6, yend = 5.3,
+           arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+           size = 0.8) +
+  
+  # Box 3a: Preterm births (left)
+  annotate("rect", xmin = 0.5, xmax = 4.5, ymin = 3.8, ymax = 5.3, 
+           fill = alpha(outcome_colors["Preterm"], 0.2), color = outcome_colors["Preterm"], size = 1.2) +
+  annotate("text", x = 2.5, y = 5, 
+           label = "Preterm Birth", 
+           size = 4, fontface = "bold", color = outcome_colors["Preterm"]) +
+  annotate("text", x = 2.5, y = 4.55, 
+           label = sprintf("n = %d subjects (%.1f%%)", n_preterm, prevalence_subject),
+           size = 3.2) +
+  annotate("text", x = 2.5, y = 4.2, 
+           label = "< 37 weeks gestation",
+           size = 2.8, fontface = "italic") +
+  
+  # Box 3b: Term births (right)
+  annotate("rect", xmin = 5.5, xmax = 9.5, ymin = 3.8, ymax = 5.3, 
+           fill = alpha(outcome_colors["Term"], 0.2), color = outcome_colors["Term"], size = 1.2) +
+  annotate("text", x = 7.5, y = 5, 
+           label = "Term Birth", 
+           size = 4, fontface = "bold", color = outcome_colors["Term"]) +
+  annotate("text", x = 7.5, y = 4.55, 
+           label = sprintf("n = %d subjects (%.1f%%)", n_term, 100 - prevalence_subject),
+           size = 3.2) +
+  annotate("text", x = 7.5, y = 4.2, 
+           label = "≥ 37 weeks gestation",
+           size = 2.8, fontface = "italic") +
+  
+  # Arrow 3 (convergence)
+  annotate("segment", x = 2.5, xend = 2.5, y = 3.8, yend = 3.3,
+           size = 0.8) +
+  annotate("segment", x = 7.5, xend = 7.5, y = 3.8, yend = 3.3,
+           size = 0.8) +
+  annotate("segment", x = 2.5, xend = 5, y = 3.3, yend = 3.3,
+           size = 0.8) +
+  annotate("segment", x = 7.5, xend = 5, y = 3.3, yend = 3.3,
+           size = 0.8) +
+  annotate("segment", x = 5, xend = 5, y = 3.3, yend = 2.5,
+           arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+           size = 0.8) +
+  
+  # Box 4: Total samples
+  annotate("rect", xmin = 1.5, xmax = 8.5, ymin = 1.3, ymax = 2.5, 
+           fill = "#FFF9E6", color = "black", size = 1) +
+  annotate("text", x = 5, y = 2.2, 
+           label = sprintf("Total Samples: n = %d", n_total_samples),
+           size = 3.8, fontface = "bold") +
+  annotate("text", x = 5, y = 1.85, 
+           label = sprintf("Preterm: %d samples (%.1f%%) | Term: %d samples (%.1f%%)", 
+                          n_preterm_samples, prevalence_sample, 
+                          n_term_samples, 100 - prevalence_sample),
+           size = 3) +
+  annotate("text", x = 5, y = 1.55, 
+           label = sprintf("Mean %.1f samples/subject (range %s)", 
+                          mean_samples, range_samples),
+           size = 2.8, fontface = "italic") +
+  
+  # Box 5: Note about pregnancy loss
+  annotate("rect", xmin = 0.3, xmax = 4.2, ymin = 0.3, ymax = 0.9, 
+           fill = "white", color = "gray40", size = 0.5, linetype = "dashed") +
+  annotate("text", x = 2.25, y = 0.6, 
+           label = "Note: Preterm births include 1 pregnancy\nloss at 20 weeks analyzed as PTB",
+           size = 2.3, color = "gray20", hjust = 0.5) +
+  
+  # Clean theme
+  theme_void() +
+  theme(
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+```
+
+### Panel B: Distribution of Samples Across Pregnancy Trimesters
+
+```{r figure1_panel_c, fig.width=7, fig.height=5}
+# Count samples by trimester and outcome
+trimester_summary <- samples_by_trimester %>%
+  group_by(trimester, outcome) %>%
+  summarize(n = n(), .groups = "drop") %>%
+  group_by(trimester) %>%
+  mutate(
+    total = sum(n),
+    percentage = round(100 * n / sum(n), 1)
+  )
+
+# Create grouped bar plot
+panel_b <- ggplot(trimester_summary, aes(x = trimester, y = n, fill = outcome)) +
+  
+  # Bars
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, 
+           color = "black", size = 0.5) +
+  
+  # Sample counts on bars
+  geom_text(aes(label = n), 
+            position = position_dodge(width = 0.8),
+            vjust = -0.5, size = 3.5, fontface = "bold") +
+  
+  # Percentage labels inside bars
+  geom_text(aes(label = sprintf("(%.1f%%)", percentage)), 
+            position = position_dodge(width = 0.8),
+            vjust = 1.7, size = 3, color = "white") +
+  
+  # Color scale
+  scale_fill_manual(values = outcome_colors, name = "Birth Outcome") +
+  
+  # Y-axis
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    breaks = seq(0, 50, by = 10)
+  ) +
+  
+  # Labels
+  labs(
+    x = "Trimester at Sample Collection",
+    y = "Number of Samples",
+    title = NULL
+  ) +
+  
+  # Theme
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(face = "bold", size = 10),
+    legend.text = element_text(size = 9),
+    axis.title = element_text(face = "bold", size = 11),
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    plot.subtitle = element_text(size = 9.5, hjust = 0.5, 
+                                  margin = margin(b = 10)),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Print summary table
+cat("\nSample distribution by trimester:\n")
+print(
+  trimester_summary %>%
+    select(trimester, outcome, n, percentage) %>%
+    arrange(trimester, desc(outcome)) %>%
+    as.data.frame()
+)
+```
+
+### Panel C: Swimmer Plot (Individual Longitudinal Trajectories)
+
+```{r figure1_panel_b, fig.width=8, fig.height=10}
+# Create swimmer plot showing each subject's trajectory
+panel_c <- ggplot() +
+  
+  # Background shading for PTB/Term groups
+  annotate("rect", 
+           xmin = -Inf, xmax = Inf, 
+           ymin = 0.5, ymax = n_preterm + 0.5,
+           fill = alpha(outcome_colors["Preterm"], 0.05)) +
+  annotate("rect", 
+           xmin = -Inf, xmax = Inf, 
+           ymin = n_preterm + 0.5, ymax = n_total_subjects + 0.5,
+           fill = alpha(outcome_colors["Term"], 0.05)) +
+  
+  # Vertical line at 37 weeks (PTB threshold)
+  geom_vline(xintercept = 37, linetype = "dashed", color = "gray30", size = 0.8) +
+  annotate("text", x = 37, y = n_total_subjects + 1, 
+           label = "37 weeks", size = 3, color = "gray30", hjust = -0.1) +
+  
+  # Horizontal lines for each subject (from first sample to delivery)
+  geom_segment(data = swimmer_data,
+               aes(x = first_sample_ga, xend = ga_delivery,
+                   y = subject_number, yend = subject_number,
+                   color = outcome),
+               size = 1.2, alpha = 0.7) +
+  
+  # Points for individual samples
+  geom_point(data = sample_points,
+             aes(x = sdg_visita, y = subject_number, fill = outcome),
+             shape = 21, size = 2.5, color = "white", stroke = 0.5, alpha = 0.8) +
+  
+  # End point markers (delivery)
+  geom_point(data = swimmer_data,
+             aes(x = ga_delivery, y = subject_number, fill = outcome),
+             shape = 23, size = 3.5, color = "black", stroke = 0.8) +
+  
+  # Color scales
+  scale_color_manual(values = outcome_colors, name = "Birth Outcome") +
+  scale_fill_manual(values = outcome_colors, name = "Birth Outcome") +
+  
+  # Axes and labels
+  scale_x_continuous(
+    breaks = seq(10, 42, by = 4),
+    limits = c(8, 43),
+    expand = c(0.01, 0)
+  ) +
+  scale_y_continuous(
+    breaks = seq(5, n_total_subjects, by = 5),
+    expand = c(0.01, 0)
+  ) +
+  
+  labs(
+    x = "Gestational Age (weeks)",
+    y = "Subject Number",
+    title = NULL
+  ) +
+  
+  # Group labels on y-axis
+  annotate("text", x = 7, y = n_preterm/2 + 0.5, 
+           label = sprintf("Preterm\n(n = %d)", n_preterm), 
+           size = 3.5, fontface = "bold", color = outcome_colors["Preterm"],
+           hjust = 0.5) +
+  annotate("text", x = 7, y = n_preterm + (n_term/2) + 0.5, 
+           label = sprintf("Term\n(n = %d)", n_term), 
+           size = 3.5, fontface = "bold", color = outcome_colors["Term"],
+           hjust = 0.5) +
+  
+  # Theme
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.title = element_text(face = "bold", size = 11),
+    axis.text = element_text(size = 9),
+    plot.margin = margin(10, 15, 10, 10)
+  )
+
+```
+
+### Combined Figure 1: Study Cohort and Longitudinal Sampling Design
+
+```{r figure1_combined, fig.width=14, fig.height=14, message=FALSE, warning=FALSE}
+### Combined Figure 1: Study Cohort and Longitudinal Sampling Design
+
+figure1_combined <- ((panel_a / panel_b) + plot_layout(heights = c(3, 2))) | panel_c +
+  plot_annotation(
+    tag_levels = 'A',
+    tag_prefix = '',
+    tag_suffix = '',
+    theme = theme(
+      plot.tag = element_text(size = 16, face = "bold"),
+      plot.tag.position = c(0, 1)  # Top-left corner
+    )
+  ) +
+  plot_layout(
+    widths = c(1.2, 1)  # Adjust relative widths if needed
+  )
+
+# Add main title
+figure1_combined <- figure1_combined +
+  plot_annotation(
+    title = "Figure 1. Study Cohort and Longitudinal Sampling Design",
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 14, hjust = 0, 
+                                margin = margin(b = 10)),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  )
+
+figure1_combined
+```
 
 ## Data Completeness Analysis
 
@@ -1049,6 +1431,397 @@ genus_prevalence %>%
 ```
 
 **Result**: Prevalence filtering reduces feature space while retaining biologically meaningful genera present across the cohort.
+
+## Decontaminant filter
+
+```{r decontaminant_filter}
+# Cured list based on Salter et al. 2014, Eisenhofer et al. 2019
+contaminant_genera <- c(
+  # Confirmados por Salter et al. 2014 (Table 1)
+  "Methylobacterium", "Methylorubrum",  # Sinónimos taxonómicos
+  "Ralstonia", "Mesorhizobium", "Microbacterium",
+  "Bradyrhizobium", "Sphingomonas", "Pseudomonas", "Acinetobacter",
+  # No bacteriano
+  "o__Chloroplast"
+)
+
+# Filtrar genera
+genera_clean <- genera_to_keep[!genera_to_keep %in% contaminant_genera]
+# Debería quedar ~40 géneros
+
+# Re-construir tabla de abundancias sin contaminantes
+# Apply filtering
+microbiome_filtered <- micro_data %>%
+  select(index, id, all_of(genera_clean))
+```
+
+## Exploratory Analysis: Vaginal Microbiome Composition
+
+**Purpose**: Visualize global structure and variability in vaginal microbiome composition using principal component analysis (PCA) of CLR-transformed genus-level abundance data. This exploratory analysis examines whether pregnancy outcomes (preterm vs. term) show distinct compositional signatures and quantifies the variance captured by the major axes of microbiome variation.
+
+**Key aspects**:
+- **Panel A**: PCA scores plot showing sample-level compositional patterns stratified by birth outcome
+- **Panel B**: Variance explained by principal components (demonstrates PC1-PC2 capture majority of variance)
+- **Panel C** (optional): Biplot with genus loadings showing taxa driving compositional variation
+
+### Data Preparation and CLR Transformation
+
+```{r figure2_data_prep, message=FALSE, warning=FALSE}
+# ============================================================================
+# IDENTIFY TAXA COLUMNS
+# ============================================================================
+
+# Taxa columns are all columns EXCEPT: index, id, shannon_diversity
+# Based on your data structure from earlier checks
+non_taxa_cols <- c("index", "id", "shannon_diversity")
+taxa_cols <- setdiff(names(micro_data), non_taxa_cols)
+
+cat(sprintf("Taxa columns identified: %d genera\n", length(taxa_cols)))
+
+# Verify no missing values in taxa columns (should be filtered already)
+taxa_matrix <- micro_data %>% select(all_of(taxa_cols))
+n_missing <- sum(is.na(taxa_matrix))
+cat(sprintf("Missing values in taxa data: %d\n\n", n_missing))
+
+# ============================================================================
+# APPLY CLR TRANSFORMATION (FULL DATASET)
+# ============================================================================
+
+cat("Applying Centered Log-Ratio (CLR) transformation...\n")
+
+# Compositional CLR (per SAMPLE) with cmultRepl zero replacement — same method as
+# the ML pipeline (see FUNCTION 2). Exploratory full-dataset transform for the PCA.
+clr_M    <- as.matrix(micro_data[, taxa_cols]); storage.mode(clr_M) <- "numeric"
+clr_R    <- as.matrix(suppressWarnings(zCompositions::cmultRepl(
+              clr_M, label = 0, method = "GBM", output = "prop",
+              z.delete = FALSE, z.warning = 1)))
+clr_logR <- log(clr_R)
+micro_clr <- micro_data
+micro_clr[, taxa_cols] <- clr_logR - rowMeans(clr_logR)   # each SAMPLE centered (row-sums ~0)
+
+cat("✓ CLR transformation completed\n\n")
+
+# Verify transformation (all CLR values should sum to ~0 for each sample)
+clr_matrix <- micro_clr %>% select(all_of(taxa_cols))
+row_sums <- rowSums(clr_matrix)
+cat(sprintf("Row sums after CLR (should be ~0): mean = %.2e, sd = %.2e\n\n", 
+            mean(row_sums), sd(row_sums)))
+
+# ============================================================================
+# PREPARE DATA FOR PCA
+# ============================================================================
+
+# Extract metadata
+metadata_pca <- preterm_data %>%
+  mutate(
+    outcome = factor(ifelse(preterm == 1, "Preterm", "Term"), 
+                    levels = c("Term", "Preterm")),
+    outcome_detailed = case_when(
+      early_preterm == 1 ~ "Early Preterm (<34 wks)",
+      preterm == 1 ~ "Late Preterm (34-36 wks)",
+      TRUE ~ "Term (≥37 wks)"
+    ),
+    outcome_detailed = factor(outcome_detailed, 
+                             levels = c("Term (≥37 wks)", 
+                                      "Late Preterm (34-36 wks)",
+                                      "Early Preterm (<34 wks)"))
+  )
+
+# CLR matrix for PCA (samples × genera)
+clr_for_pca <- clr_matrix %>% as.matrix()
+rownames(clr_for_pca) <- micro_clr$index
+
+cat(sprintf("Data prepared for PCA: %d samples × %d genera\n\n", 
+            nrow(clr_for_pca), ncol(clr_for_pca)))
+
+# Summary statistics
+cat("Outcome distribution:\n")
+print(table(metadata_pca$outcome))
+cat("\n")
+```
+
+### Perform Principal Component Analysis
+
+```{r figure2_pca_calculation, message=FALSE, warning=FALSE}
+cat("Performing PCA on CLR-transformed microbiome profiles...\n")
+
+# Run PCA
+# center = TRUE: center variables to mean 0 (important for CLR data)
+# scale = FALSE: don't scale (CLR already puts data on comparable scale)
+pca_result <- prcomp(clr_for_pca, center = TRUE, scale. = FALSE)
+
+cat("✓ PCA completed\n\n")
+
+# Extract variance explained
+variance_explained <- (pca_result$sdev^2) / sum(pca_result$sdev^2) * 100
+cumulative_variance <- cumsum(variance_explained)
+
+# Report key statistics
+cat("Variance explained by principal components:\n")
+for(i in 1:min(10, length(variance_explained))) {
+  cat(sprintf("  PC%d: %.2f%% (cumulative: %.2f%%)\n", 
+              i, variance_explained[i], cumulative_variance[i]))
+}
+
+cat(sprintf("\nPC1 + PC2 explain: %.2f%% of total variance\n", 
+            cumulative_variance[2]))
+cat(sprintf("PC1 + PC2 + PC3 explain: %.2f%% of total variance\n\n", 
+            cumulative_variance[3]))
+
+# Extract PC scores (sample coordinates)
+pca_scores <- as.data.frame(pca_result$x[, 1:5])  # Keep first 5 PCs
+pca_scores$index <- as.integer(rownames(pca_scores))
+
+# Merge with metadata
+pca_data <- pca_scores %>%
+  left_join(metadata_pca, by = "index")
+
+# Extract loadings (genus contributions to PCs)
+pca_loadings <- as.data.frame(pca_result$rotation[, 1:3])  # First 3 PCs
+pca_loadings$genus <- rownames(pca_loadings)
+
+# Identify top contributors to PC1 and PC2
+top_n_loadings <- 9
+top_pc1 <- pca_loadings %>%
+  arrange(desc(abs(PC1))) %>%
+  head(top_n_loadings) %>%
+  mutate(contribution = "PC1")
+
+top_pc2 <- pca_loadings %>%
+  arrange(desc(abs(PC2))) %>%
+  head(top_n_loadings) %>%
+  mutate(contribution = "PC2")
+
+top_loadings <- bind_rows(top_pc1, top_pc2) %>%
+  distinct(genus, .keep_all = TRUE)
+
+cat(sprintf("Top %d genera contributing to PC1 and PC2 identified\n\n", 
+            nrow(top_loadings)))
+
+# Print top contributors
+cat("Top genera contributing to PC1:\n")
+top_pc1 %>%
+  select(genus, PC1) %>%
+  mutate(PC1 = round(PC1, 4)) %>%
+  head(5) %>%
+  print()
+
+cat("\nTop genera contributing to PC2:\n")
+top_pc2 %>%
+  select(genus, PC2) %>%
+  mutate(PC2 = round(PC2, 4)) %>%
+  head(5) %>%
+  print()
+
+cat("\n")
+```
+
+### Panel A: PCA Scores Plot by Birth Outcome
+
+```{r figure2_panel_a, fig.width=8, fig.height=6}
+# Color palette (consistent with Figure 1)
+outcome_colors <- c("Term" = "#619CFF", "Preterm" = "#F8766D")
+
+# Calculate 95% confidence ellipses
+# Using stat_ellipse with type = "norm" for normal distribution assumption
+
+panel_a <- ggplot(pca_data, aes(x = PC1, y = PC2, color = outcome, fill = outcome)) +
+  
+  # Confidence ellipses (95% level)
+  stat_ellipse(geom = "polygon", alpha = 0.15, 
+               level = 0.95, type = "norm", show.legend = FALSE) +
+  
+  # Individual points
+  geom_point(size = 3, alpha = 0.7, stroke = 0.5, shape = 21, color = "white") +
+  
+  # Color scales
+  scale_fill_manual(values = outcome_colors, name = "Birth Outcome") +
+  scale_color_manual(values = outcome_colors, name = "Birth Outcome") +
+  
+  # Axes labels with variance explained
+  labs(
+    x = sprintf("PC1 (%.1f%% variance explained)", variance_explained[1]),
+    y = sprintf("PC2 (%.1f%% variance explained)", variance_explained[2]),
+    title = NULL
+  ) +
+  
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = c(0.85, 0.15),
+    legend.background = element_rect(fill = "white", color = "gray80", size = 0.5),
+    legend.title = element_text(face = "bold", size = 11),
+    legend.text = element_text(size = 10),
+    axis.title = element_text(face = "bold", size = 11),
+    axis.text = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray60", fill = NA, size = 0.8),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+print(panel_a)
+
+# Calculate summary statistics for overlap
+cat("\nPCA score statistics by outcome:\n")
+pca_summary <- pca_data %>%
+  group_by(outcome) %>%
+  summarize(
+    n = n(),
+    PC1_mean = mean(PC1),
+    PC1_sd = sd(PC1),
+    PC2_mean = mean(PC2),
+    PC2_sd = sd(PC2),
+    .groups = "drop"
+  )
+print(pca_summary)
+cat("\n")
+```
+
+### Panel B: Variance Explained (Scree Plot)
+
+```{r figure2_panel_b, fig.width=7, fig.height=5}
+# Prepare data for scree plot
+variance_df <- tibble(
+  PC = factor(1:min(20, length(variance_explained)), 
+             levels = 1:min(20, length(variance_explained))),
+  variance = variance_explained[1:min(20, length(variance_explained))],
+  cumulative = cumulative_variance[1:min(20, length(variance_explained))]
+)
+
+# Scree plot with cumulative variance
+panel_b <- ggplot(variance_df, aes(x = PC)) +
+  
+  # Individual variance (bars)
+  geom_col(aes(y = variance), fill = "steelblue", alpha = 0.7, width = 0.7) +
+  
+  # Cumulative variance (line)
+  geom_line(aes(y = cumulative, group = 1), color = "darkred", size = 1.2) +
+  geom_point(aes(y = cumulative), color = "darkred", size = 2.5) +
+  
+  # Horizontal line at 80% and 90%
+  geom_hline(yintercept = 80, linetype = "dashed", color = "gray40", size = 0.6) +
+  geom_hline(yintercept = 90, linetype = "dashed", color = "gray40", size = 0.6) +
+  
+  # Annotations
+  annotate("text", x = 18, y = 82, label = "80%", 
+           size = 3, color = "gray40", hjust = 0) +
+  annotate("text", x = 18, y = 92, label = "90%", 
+           size = 3, color = "gray40", hjust = 0) +
+  
+  # Highlight PC1-PC2
+  annotate("rect", xmin = 0.5, xmax = 2.5, ymin = 0, ymax = 100,
+           alpha = 0.1, fill = "gold") +
+  annotate("text", x = 1.5, y = 95, 
+           label = sprintf("PC1+PC2\n%.1f%%", cumulative_variance[2]),
+           size = 3.5, fontface = "bold") +
+  
+  # Scales
+  scale_y_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, by = 20),
+    expand = c(0, 0)
+  ) +
+  scale_x_discrete(breaks = c(1, 5, 10)) +
+  
+  # Labels
+  labs(
+    x = "Principal Component",
+    y = "Variance Explained (%)",
+    title = NULL,
+    subtitle = "Blue bars: individual variance | Red line: cumulative variance"
+  ) +
+  
+  # Theme
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.title = element_text(face = "bold", size = 11),
+    axis.text = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    plot.subtitle = element_text(size = 9, hjust = 0.5, margin = margin(b = 10)),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+print(panel_b)
+```
+
+### Panel C: Biplot with Genus Loadings (Optional)
+
+```{r figure2_panel_c, fig.width=9, fig.height=7}
+# Scale loadings for visualization (arrows)
+loading_scale <- 0.69  # Adjust if arrows are too long/short
+
+biplot_data <- top_loadings %>%
+  mutate(
+    PC1_arrow = PC1 * loading_scale,
+    PC2_arrow = PC2 * loading_scale,
+    # Clean genus names for display (remove prefixes if present)
+    genus_clean = str_remove(genus, "^[a-z]__")
+  )
+
+panel_c <- ggplot() +
+  
+  # Ellipses
+  stat_ellipse(data = pca_data,
+               aes(x = PC1, y = PC2, color = outcome, fill = outcome),
+               level = 0.95, type = "norm", alpha = 0.15, 
+               geom = "polygon", show.legend = FALSE) +
+  
+  # Sample points
+  geom_point(data = pca_data, 
+             aes(x = PC1, y = PC2, fill = outcome),
+             size = 3, alpha = 0.7, stroke = 0.5, shape = 21, color = "white") +
+  
+  # Loading arrows
+  geom_segment(data = biplot_data,
+               aes(x = 0, y = 0, xend = PC1_arrow, yend = PC2_arrow),
+               arrow = arrow(length = unit(0.25, "cm"), type = "closed"),
+               color = "grey20", size = 0.8, alpha = 0.7) +
+  
+  # Genus labels
+  geom_text_repel(data = biplot_data,
+                  aes(x = PC1_arrow, y = PC2_arrow, label = genus_clean),
+                  size = 3, color = "grey20", fontface = "bold",
+                  box.padding = 0.5, point.padding = 0.3,
+                  segment.color = "gray50", segment.size = 0.3,
+                  max.overlaps = 20) +
+  
+  # Color scales
+  scale_fill_manual(values = outcome_colors, name = "Birth Outcome") +
+  scale_color_manual(values = outcome_colors, name = "Birth Outcome") +
+  
+  # Axes
+  labs(
+    x = sprintf("PC1 (%.1f%% variance explained)", variance_explained[1]),
+    y = sprintf("PC2 (%.1f%% variance explained)", variance_explained[2]),
+    title = NULL,
+    caption = sprintf("Arrows represent top %d genera contributing to PC1 and PC2 variation", 
+                     nrow(biplot_data))
+  ) +
+  
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = c(0.85, 0.15),
+    legend.background = element_rect(fill = "white", color = "gray80", size = 0.5),
+    legend.title = element_text(face = "bold", size = 11),
+    legend.text = element_text(size = 10),
+    axis.title = element_text(face = "bold", size = 11),
+    axis.text = element_text(size = 10),
+    plot.caption = element_text(size = 9, hjust = 0.5, margin = margin(t = 10)),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray60", fill = NA, size = 0.8),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+panel_c
+```
+
+**Technical notes:** 
+- Principal component analysis was performed on centered log-ratio (CLR)-transformed genus-level relative abundances to account for the compositional nature of microbiome data (Gloor et al., 2017, doi:10.3389/fmicb.2017.02224). 
+- Compositional zeros were replaced with unsupervised Bayesian-multiplicative estimates (zCompositions::cmultRepl) before the per-sample log-ratio transformation.
+- PCA was performed on the full dataset (n=110 samples) using all [N] genera that passed quality filtering (≥5% sample prevalence). 
+- Confidence ellipses assume multivariate normality and are shown for visualization purposes; formal statistical comparison was performed using PERMANOVA on Aitchison distances (Euclidean distance on CLR-transformed data).
 
 # Clinical Variable Selection: Three Strategic Approaches
 
@@ -2183,7 +2956,7 @@ $$\mathrm{CLR}(x_i) = \log\left(\frac{x_i}{\mathrm{geometric\_mean}(x)}\right)$$
 
 
 **Implementation notes**:
-- Adds pseudocount (1e-6) to handle zeros
+- Replaces zeros with cmultRepl (Bayesian-multiplicative) estimates, then centers each SAMPLE by the geometric mean of its own taxa (per-sample CLR)
 - Preserves ID columns (index, id)
 - Renames transformed columns with "CLR_" prefix
 
@@ -2292,20 +3065,64 @@ detect_prob_col <- function(df, pos_class = "1") {
   }
 }
 
-# FUNCTION 2: Apply Centered Log-Ratio (CLR) Transformation
-apply_clr_transform <- function(data, taxa_cols) {
-  # Add pseudocount to handle zeros
-  pseudocount <- 0.65
-  
-  data_clr <- data %>%
-    mutate(across(all_of(taxa_cols), 
-                  ~{
-                    x_pseudo <- . + pseudocount
-                    geometric_mean <- exp(mean(log(x_pseudo)))
-                    log(x_pseudo / geometric_mean)
-                  }))
-  
-  return(data_clr)
+# FUNCTION 2: Centered Log-Ratio (CLR) transformation — COMPOSITIONAL, per SAMPLE
+# ---------------------------------------------------------------------------
+# CLR closes each SAMPLE (row) by the geometric mean of that sample's own taxa:
+#   clr(x_ij) = log(x_ij) - mean_k log(x_ik)   (each row then sums to 0).
+# The previous version subtracted each TAXON's across-sample geometric mean
+# (a per-feature centering, NOT compositional CLR): row-sums were not 0, and once
+# the recipe's step_normalize ran it was mathematically identical to a plain
+# log(x + 0.65) transform — i.e. the microbiome was never CLR-transformed.
+#
+# Zeros are replaced first with Bayesian-multiplicative estimates
+# (zCompositions::cmultRepl, GBM). This matrix is 68–81% zeros, so cmultRepl's
+# default deletion of high-zero columns/rows is switched off (z.delete = FALSE,
+# z.warning = 1) to keep every taxon and sample. The replacement is UNSUPERVISED
+# (it never sees `preterm`), so the per-taxon levels are learned once on the full
+# microbiome (fit_clr_zerorepl → clr_zero_levels): per-fold refitting is infeasible
+# here because some taxa are all-zero inside a training split. The per-sample CLR
+# step is stateless (row-local), so applying it to train/val/test separately is
+# leakage-free by construction — resolving the invariant that the old per-split
+# recomputation of the centering violated.
+
+# Learn per-taxon zero-replacement levels from a (training) matrix. GBM replacement
+# on closed relative data is ~constant per taxon, so we summarise it as one level/taxon.
+fit_clr_zerorepl <- function(train_data, taxa_cols) {
+  M <- as.matrix(train_data[, taxa_cols, drop = FALSE]); storage.mode(M) <- "numeric"
+  present <- colSums(M) > 0
+  levels  <- setNames(rep(NA_real_, length(taxa_cols)), taxa_cols)
+  if (any(present)) {
+    R <- as.matrix(suppressWarnings(zCompositions::cmultRepl(
+           M[, present, drop = FALSE], label = 0, method = "GBM",
+           output = "prop", z.delete = FALSE, z.warning = 1)))
+    pres_idx <- which(present)
+    for (jj in seq_along(pres_idx)) {
+      z <- which(M[, pres_idx[jj]] == 0)
+      if (length(z)) levels[pres_idx[jj]] <- stats::median(R[z, jj])
+    }
+  }
+  floor_val <- suppressWarnings(min(levels[levels > 0], na.rm = TRUE))
+  if (!is.finite(floor_val)) floor_val <- 1e-6
+  levels[is.na(levels)] <- floor_val   # taxa absent in train (dropped later by step_zv)
+  attr(levels, "floor") <- floor_val
+  levels
+}
+
+# Replace zeros with the (training-derived) levels, then apply per-SAMPLE CLR.
+apply_clr_transform <- function(data, taxa_cols, zero_levels = clr_zero_levels) {
+  M  <- as.matrix(data[, taxa_cols, drop = FALSE]); storage.mode(M) <- "numeric"
+  rj <- zero_levels[taxa_cols]
+  floor_val <- attr(zero_levels, "floor"); if (is.null(floor_val)) floor_val <- 1e-6
+  rj[is.na(rj)] <- floor_val
+  Z <- M == 0
+  M <- M * (1 - as.numeric(Z %*% rj))                       # shrink observed parts (multiplicative)
+  rjmat <- matrix(rj, nrow(M), ncol(M), byrow = TRUE); M[Z] <- rjmat[Z]
+  M[M <= 0] <- floor_val
+  logM <- log(M)
+  clr  <- logM - rowMeans(logM)                             # per-SAMPLE centering (rows sum to 0)
+  colnames(clr) <- taxa_cols
+  data[taxa_cols] <- as.data.frame(clr)
+  data
 }
 
 # FUNCTION 3: Optimize Classification Threshold
@@ -2619,6 +3436,11 @@ train_with_nested_cv <- function(model_name, model_spec,
       
       full_data_abs <- read.csv(abs_file, row.names = 98)
       otu_table_raw <- full_data_abs[, 1:97]
+      # ── Filtrar OTU table al mismo conjunto de géneros que micro_genus_full ──────
+      cols_to_keep <- intersect(genera_clean, colnames(otu_table_raw))
+      otu_table_raw <- otu_table_raw[, cols_to_keep]
+      cat(sprintf("  OTU table filtered to %d clean genera\n", ncol(otu_table_raw)))
+      # ─────────────────────────────────────────────────────────────────────────────
       meta_data_raw <- full_data_abs[, 98:166]
       
       # Run ANCOM-BC2 on this fold's training subjects
@@ -3294,6 +4116,17 @@ cat(
 )
 
 # ============================================================================
+# CLR ZERO-REPLACEMENT LEVELS (learned once, unsupervised — see FUNCTION 2)
+# ============================================================================
+# cmultRepl replacement is outcome-blind; per-fold refitting is infeasible on this
+# sparsity (all-zero taxa within some training splits). apply_clr_transform() reads
+# clr_zero_levels by default and applies stateless per-sample CLR within each fold.
+clr_taxa_all   <- setdiff(names(micro_genus_full), c("index", "id", "shannon_diversity"))
+clr_zero_levels <- fit_clr_zerorepl(micro_genus_full, clr_taxa_all)
+cat(sprintf("CLR zero-replacement learned for %d taxa (min=%.2e, median=%.2e, max=%.2e)\n\n",
+            length(clr_taxa_all), min(clr_zero_levels), median(clr_zero_levels), max(clr_zero_levels)))
+
+# ============================================================================
 # RUN NESTED CV FOR ALL COMBINATIONS
 # ============================================================================
 
@@ -3697,7 +4530,8 @@ if(length(ancom_selection_data) > 0) {
         n_folds_selected == 5 ~ "Very Stable (5/5)",
         n_folds_selected >= 4 ~ "Stable (4/5)",
         n_folds_selected >= 3 ~ "Moderate (3/5)",
-        TRUE ~ "Low (1-2/5)"
+        n_folds_selected >= 2 ~ "Low-moderate (2/5)",
+        TRUE ~ "Low (1/5)"
       )
     ) %>%
     ggplot(aes(x = reorder(taxon, n_folds_selected), y = n_folds_selected)) +
@@ -3705,10 +4539,11 @@ if(length(ancom_selection_data) > 0) {
     geom_hline(yintercept = 5, linetype = "dashed", color = "red", size = 1) +
     scale_fill_manual(
       values = c(
-        "Very Stable (5/5)" = "#1B5E20",
-        "Stable (4/5)" = "#388E3C",
-        "Moderate (3/5)" = "#FBC02D",
-        "Low (1-2/5)" = "#F57C00"
+        "Very Stable (5/5)" = "#0072B2",
+        "Stable (4/5)" = "#56B4E9",
+        "Moderate (3/5)" = "#F0E442",
+        "Low-moderate (2/5)" = "#E69F00",
+        "Low (1/5)" = "#D55E00"
       ),
       name = "Selection Stability"
     ) +
@@ -4098,7 +4933,7 @@ p_roc <- ggplot() +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
   labs(
     title = "ROC Curves: Top 3 Models",
-    subtitle = "5-fold CV with 95% CI (from stored data, no retraining)",
+    subtitle = "5-fold CV with 95% CI",
     x = "False Positive Rate (1 - Specificity)",
     y = "True Positive Rate (Sensitivity)"
   ) +
@@ -4179,7 +5014,7 @@ p_pr <- ggplot() +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
   labs(
     title = "Precision-Recall Curves: Top 3 Models",
-    subtitle = "5-fold CV with 95% CI (from stored data, no retraining)",
+    subtitle = "5-fold CV with 95% CI",
     x = "Recall (Sensitivity)",
     y = "Precision (PPV)"
   ) +
@@ -4202,22 +5037,30 @@ cat("✓ Metrics included in legends\n")
 cat("✓ NO RETRAINING - using original nested CV results\n")
 ```
 
-```{r feature_importance_no_retrain, fig.width=10, fig.height=9}
-# ============================================================================
-# FEATURE IMPORTANCE FROM BEST-PERFORMING RF MODEL
-# ============================================================================
+## Feature Importance and Selection Stability Analysis (CORRECTED)
 
-cat("\n╔════════════════════════════════════════╗\n")
-cat("║  FEATURE IMPORTANCE (BEST RF MODEL)   ║\n")
-cat("╚════════════════════════════════════════╝\n\n")
+**Purpose**: Characterize the contribution and stability of clinical and microbiome features in the best-performing Random Forest model using Gini impurity-based importance complemented by feature selection stability analysis.
+
+### Data Preparation and Model Extraction
+
+```{r figure5_corrected_prep, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(patchwork)
+library(workflows)
+
+cat(
+  "\n", paste(rep("=", 70), collapse = ""), "\n",
+  "FIGURE 5: FEATURE IMPORTANCE AND STABILITY ANALYSIS\n",
+  paste(rep("=", 70), collapse = ""), "\n\n"
+)
 
 # ============================================================================
-# FIND BEST RF MODEL (by AUROC, then PRAUC)
+# IDENTIFY BEST-PERFORMING MODEL
 # ============================================================================
 
 rf_models <- map_dfr(1:length(cv_results_all), function(i) {
   res <- cv_results_all[[i]]
-  if(res$model_name == "rf_base") {
+  if(!is.null(res) && res$model_name == "rf_base") {
     tibble(
       idx = i,
       model_name = res$model_name,
@@ -4234,285 +5077,467 @@ rf_models <- map_dfr(1:length(cv_results_all), function(i) {
 }) %>%
   arrange(desc(auroc_mean), desc(prauc_mean))
 
-if(nrow(rf_models) == 0) {
-  cat("No RF model found\n")
-} else {
-  
-  # Select best RF (first row after sorting)
-  best_rf_info <- rf_models[1, ]
-  best_rf <- cv_results_all[[best_rf_info$idx]]
-  
-  cat(sprintf("Best RF Model:\n"))
-  cat(sprintf("  Model: %s\n", best_rf_info$model_name))
-  cat(sprintf("  Approach: %s\n", gsub("Approach[0-9]_", "", best_rf_info$approach)))
-  cat(sprintf("  Microbiome: %s\n", gsub("_", " ", best_rf_info$microbiome)))
-  cat(sprintf("  AUROC: %.3f ± %.3f\n", best_rf_info$auroc_mean, best_rf_info$auroc_sd))
-  cat(sprintf("  PRAUC: %.3f ± %.3f\n\n", best_rf_info$prauc_mean, best_rf_info$prauc_sd))
-  
-  # ========================================================================
-  # CHECK FINAL MODEL EXISTS
-  # ========================================================================
-  
-  if(is.null(best_rf$final_model)) {
-    cat("ERROR: No final model stored.\n")
-    cat("Re-run nested CV with final model storage enabled.\n")
-  } else {
-    
-    cat("Using stored final model\n")
-    
-    # ======================================================================
-    # EXTRACT FEATURE IMPORTANCE
-    # ======================================================================
-    
-    rf_fit <- extract_fit_parsnip(best_rf$final_model)
-    
-    if(is.null(rf_fit$fit$variable.importance)) {
-      cat("ERROR: Model does not have variable importance\n")
-    } else {
-      
-      imp_df <- tibble(
-        feature = names(rf_fit$fit$variable.importance),
-        importance = rf_fit$fit$variable.importance
-      ) %>% 
-        arrange(desc(importance))
-      
-      # ==================================================================
-      # CLASSIFY FEATURES (COMPREHENSIVE CLINICAL LIST)
-      # ==================================================================
-      
-      clinical_vars_comprehensive <- c(
-        # Basic demographics
-        "sdg_visita", "edad_cronologicamujer",
-        
-        # Anthropometry
-        "imc_pregestacional", "imc_visita", "peso_kg", 
-        "peso_pregestacional_kg", "talla_mujer_cm",
-        
-        # BMI categories
-        "extreme_bmi", "obese", "underweight",
-        "imc_pregest_categ", "imc_categ",
-        
-        # Age categories
-        "extreme_age", "age_risk_category_optimal", 
-        "age_risk_category_very_young", "age_risk_category_advanced_maternal_age",
-        
-        # Supplements
-        "vitaminsup", "dietsuppl3mon", "supintakefreq", "folic_ac_correg",
-        
-        # Complications
-        "complication_count", "any_complication", "multiple_complications",
-        "comp1tribleed", "compvaginf", "compsexualinf", "comppreeclam",
-        
-        # Pregnancy conditions
-        "rpm_preterm", "rpm", "diabetes_gest", "rciu",
-        "oligohidramnios", "anemia_visita",
-        
-        # Hematology
-        "hemoglobin_alti_adj", "hemoglobin_g_dl",
-        
-        # Infections
-        "infection_burden", "any_infection",
-        
-        # Socioeconomic
-        "low_education", "unmarried", "ses_risk_score",
-        "nivel_academico", "maritalstat", "workouthome",
-        
-        # Baby
-        "sex_baby",
-        
-        # Diversity (special category)
-        "shannon_diversity"
-      )
-      
-      imp_plot <- imp_df %>%
-        head(25) %>%
-        mutate(
-          # =================================================================
-          # CLASSIFY - VECTORIZED
-          # =================================================================
-          
-          feature_type = case_when(
-            # 1. Shannon
-            grepl("shannon", feature, ignore.case = TRUE) ~ "Diversity",
-            
-            # 2. Exact match
-            feature %in% clinical_vars_comprehensive ~ "Clinical",
-            
-            # 3. Base name (remove suffix)
-            gsub("_[^_]+$", "", feature) %in% clinical_vars_comprehensive ~ "Clinical",
-            
-            # 4. Starts with clinical (VECTORIZED)
-            sapply(feature, function(f) {
-              any(sapply(clinical_vars_comprehensive, function(cv) {
-                startsWith(f, cv)
-              }))
-            }) ~ "Clinical",
-            
-            # 5. CLR patterns
-            grepl("^CLR_", feature) ~ "Microbiome",
-            grepl("^Genus_", feature) ~ "Microbiome",
-            
-            # 6. Known genera (VECTORIZED)
-            sapply(feature, function(f) {
-              genera <- c(
-                "Lactobacillus", "Gardnerella", "Prevotella", "Sneathia",
-                "Atopobium", "Megasphaera", "Streptococcus", "Dialister",
-                "Mobiluncus", "Anaerococcus", "Peptoniphilus", "Finegoldia",
-                "Porphyromonas", "Bacteroides", "Ureaplasma", "Mycoplasma",
-                "Bifidobacterium", "Corynebacterium", "Staphylococcus",
-                "Ralstonia", "Fannyhessea", "Hydrotalea", "HT002",
-                "Lawsonella", "Mesorhizobium", "Methylobacterium",
-                "Gordonia"
-              )
-              any(sapply(genera, function(g) {
-                grepl(g, f, ignore.case = TRUE)
-              }))
-            }) ~ "Microbiome",
-            
-            # 7. Default
-            TRUE ~ "Microbiome"
-          ),
-          
-          # =================================================================
-          # CLEAN LABELS
-          # =================================================================
-          
-          feature_clean = case_when(
-            feature == "edad_cronologicamujer" ~ "Maternal Age",
-            feature == "imc_pregestacional" ~ "Pre-pregnancy BMI",
-            feature == "imc_visita" ~ "BMI at Visit",
-            feature == "sdg_visita" ~ "Gestational Age",
-            feature == "shannon_diversity" ~ "Shannon Diversity",
-            feature == "nivel_academico" ~ "Academic level",
-            feature == "extreme_bmi" ~ "Extreme BMI",
-            feature == "underweight" ~ "Underweight (Low BMI)",
-            feature == "peso_kg" ~ "Weight (kg)",
-            feature == "peso_pregestacional_kg" ~ "Pre-pregnancy Weight",
-            feature == "rpm_preterm" ~ "PROM (preterm)",
-            feature == "hemoglobin_alti_adj" ~ "Hemoglobin (altitude-adj)",
-            feature == "folic_ac_correg" ~ "Folic acid intake",
-            feature == "vitaminsup" ~ "Vitamin Supplementation",
-            feature == "talla_mujer_cm" ~ "Height (cm)",
-            feature == "obese" ~ "Obese",
-            grepl("^CLR_", feature) ~ gsub("CLR_|Genus_", "", feature),
-            grepl("^Genus_", feature) ~ gsub("Genus_", "", feature),
-            grepl("imc_pregest_categ", feature) ~ gsub("imc_pregest_categ_", "BMI: ", feature),
-            grepl("age_risk_category", feature) ~ gsub("age_risk_category_", "Age: ", feature),
-            TRUE ~ feature
-          ),
-          
-          feature_clean = str_trunc(feature_clean, width = 35)
-        ) %>%
-        arrange(desc(importance))
-      
-      # ==================================================================
-      # VERIFY CLASSIFICATION
-      # ==================================================================
-      
-      cat("\nFeature type distribution (top 25):\n")
-      type_table <- table(imp_plot$feature_type)
-      print(type_table)
-      
-      if(sum(type_table["Clinical"]) < 3) {
-        cat("\n⚠️  WARNING: Very few clinical features detected.\n")
-        cat("   This may indicate classification issues.\n\n")
-      }
-      
-      # ==================================================================
-      # CREATE DESCRIPTIVE TITLE
-      # ==================================================================
-      
-      # Format approach name
-      approach_clean <- case_when(
-        grepl("DREAM", best_rf_info$approach) ~ "minimal clinical features",
-        grepl("Literature", best_rf_info$approach) ~ "literature-based features",
-        grepl("DataDriven", best_rf_info$approach) ~ "data-driven features",
-        TRUE ~ gsub("Approach[0-9]_", "", best_rf_info$approach)
-      )
-      
-      # Format microbiome name
-      microbiome_clean <- case_when(
-        best_rf_info$microbiome == "Full_Microbiome" ~ "full microbiome",
-        best_rf_info$microbiome == "ANCOM_Taxa" ~ "ANCOM-selected taxa",
-        TRUE ~ tolower(gsub("_", " ", best_rf_info$microbiome))
-      )
-      
-      # Create title and subtitle
-      plot_title <- "Feature Importance: Best-Performing Model"
-      
-      plot_subtitle <- sprintf(
-        "Random Forest with %s and %s (AUROC = %.3f, PRAUC = %.3f)",
-        approach_clean,
-        microbiome_clean,
-        best_rf_info$auroc_mean,
-        best_rf_info$prauc_mean
-      )
-      
-      # ==================================================================
-      # PLOT
-      # ==================================================================
-      
-      p <- imp_plot %>%
-        ggplot(aes(x = reorder(feature_clean, importance), 
-                   y = importance, 
-                   fill = feature_type)) +
-        geom_col(alpha = 0.85, width = 0.8) +
-        coord_flip() +
-        scale_fill_manual(
-          values = c(
-            "Clinical" = "#E74C3C",      # Red
-            "Microbiome" = "#3498DB",    # Blue
-            "Diversity" = "#2ECC71"      # Green
-          ),
-          name = "Feature Type"
-        ) +
-        labs(
-          title = plot_title,
-          subtitle = plot_subtitle,
-          x = "",
-          y = "Variable Importance (Mean Decrease in Gini Impurity)",
-          caption = "Importance measured from Random Forest trained on full dataset"
-        ) +
-        theme_minimal(base_size = 12) +
-        theme(
-          legend.position = "bottom",
-          legend.title = element_text(face = "bold", size = 11),
-          legend.text = element_text(size = 10),
-          plot.title = element_text(face = "bold", size = 14, hjust = 0),
-          plot.subtitle = element_text(size = 11, color = "gray30", hjust = 0),
-          plot.caption = element_text(size = 9, color = "gray50", hjust = 0),
-          axis.text.y = element_text(size = 10),
-          axis.text.x = element_text(size = 10),
-          axis.title.x = element_text(size = 11, face = "bold"),
-          panel.grid.major.y = element_blank(),
-          panel.grid.minor = element_blank()
-        )
-      
-      print(p)
-      
-      # ==================================================================
-      # PRINT TOP 10
-      # ==================================================================
-      
-      cat("\n=== TOP 10 MOST IMPORTANT FEATURES ===\n\n")
-      
-      top10 <- imp_plot %>%
-        head(25) %>%
-        select(Rank = everything(), Feature = feature_clean, 
-               Type = feature_type, Importance = importance) %>%
-        mutate(
-          Rank = 1:n(),
-          Importance = round(Importance, 3)
-        )
-      
-      print(top10)
-      
-      cat("\n✓ Feature importance from best-performing RF model\n")
-      cat("✓ NO RETRAINING required\n")
-    }
-  }
+best_rf_info <- rf_models[1, ]
+best_rf <- cv_results_all[[best_rf_info$idx]]
+
+cat(sprintf("Best-Performing Random Forest Model:\n"))
+cat(sprintf("  Approach: %s\n", gsub("Approach[0-9]_", "", best_rf_info$approach)))
+cat(sprintf("  Microbiome: %s\n", gsub("_", " ", best_rf_info$microbiome)))
+cat(sprintf("  AUROC: %.3f ± %.3f\n", best_rf_info$auroc_mean, best_rf_info$auroc_sd))
+cat(sprintf("  PRAUC: %.3f ± %.3f\n\n", best_rf_info$prauc_mean, best_rf_info$prauc_sd))
+
+if(is.null(best_rf$final_model)) {
+  stop("ERROR: No final model stored. Cannot compute feature importance.")
 }
 ```
+
+### Extract Gini-Based Feature Importance
+
+```{r figure5_gini_importance, message=FALSE, warning=FALSE}
+cat("╔════════════════════════════════════════════════════════════════════╗\n")
+cat("║  EXTRACTING FEATURE IMPORTANCE (GINI IMPURITY)                    ║\n")
+cat("╚════════════════════════════════════════════════════════════════════╝\n\n")
+
+cat("Method: Gini impurity-based importance\n")
+cat("Source: Variable importance from trained Random Forest\n")
+cat("Note: Mean decrease in Gini impurity across all trees\n\n")
+
+# Extract fitted RF model
+rf_fit <- extract_fit_parsnip(best_rf$final_model)
+
+# Verify importance is available
+if(is.null(rf_fit$fit$variable.importance)) {
+  stop("ERROR: Model does not have variable importance. Check model specification.")
+}
+
+# Extract importance scores
+gini_importance <- tibble(
+  Variable = names(rf_fit$fit$variable.importance),
+  Importance = rf_fit$fit$variable.importance
+) %>%
+  arrange(desc(Importance))
+
+cat(sprintf("✓ Extracted importance for %d features\n\n", nrow(gini_importance)))
+
+# ============================================================================
+# CLASSIFY FEATURES BY TYPE
+# ============================================================================
+
+# Comprehensive list of clinical variables
+clinical_vars_comprehensive <- c(
+  "sdg_visita", "edad_cronologicamujer",
+  "imc_pregestacional", "imc_visita", "peso_kg", 
+  "peso_pregestacional_kg", "talla_mujer_cm",
+  "extreme_bmi", "obese", "underweight",
+  "imc_pregest_categ", "imc_categ",
+  "extreme_age", "age_risk_category",
+  "vitaminsup", "dietsuppl3mon", "supintakefreq", "folic_ac_correg",
+  "complication_count", "any_complication", "multiple_complications",
+  "comp1tribleed", "compvaginf", "compsexualinf", "comppreeclam",
+  "rpm_preterm", "rpm", "diabetes_gest", "rciu",
+  "oligohidramnios", "anemia_visita",
+  "hemoglobin_alti_adj", "hemoglobin_g_dl",
+  "low_education", "unmarried", "ses_risk_score",
+  "nivel_academico", "maritalstat", "workouthome",
+  "sex_baby"
+)
+
+# Known genera
+known_genera <- c(
+  "Lactobacillus", "Gardnerella", "Prevotella", "Sneathia",
+  "Atopobium", "Megasphaera", "Streptococcus", "Dialister",
+  "Mobiluncus", "Anaerococcus", "Peptoniphilus", "Finegoldia",
+  "Porphyromonas", "Bacteroides", "Ureaplasma", "Mycoplasma",
+  "Bifidobacterium", "Corynebacterium", "Staphylococcus",
+  "Ralstonia", "Fannyhessea", "Hydrotalea", "HT002",
+  "Lawsonella", "Mesorhizobium", "Methylobacterium",
+  "Gordonia", "Peptostreptococcus", "Kocuria", "Agrobacterium",
+  "Variovorax", "Bradyrhizobium"
+)
+
+# Classify and clean feature names
+importance_classified <- gini_importance %>%
+  mutate(
+    feature_type = case_when(
+      grepl("shannon", Variable, ignore.case = TRUE) ~ "Diversity",
+      Variable %in% clinical_vars_comprehensive ~ "Clinical",
+      gsub("_[^_]+$", "", Variable) %in% clinical_vars_comprehensive ~ "Clinical",
+      sapply(Variable, function(f) {
+        any(sapply(clinical_vars_comprehensive, function(cv) startsWith(f, cv)))
+      }) ~ "Clinical",
+      grepl("^CLR_", Variable) ~ "Microbiome",
+      grepl("^Genus_", Variable) ~ "Microbiome",
+      sapply(Variable, function(f) {
+        any(sapply(known_genera, function(g) grepl(g, f, ignore.case = TRUE)))
+      }) ~ "Microbiome",
+      TRUE ~ "Microbiome"
+    ),
+    Variable_clean = case_when(
+      Variable == "edad_cronologicamujer" ~ "Maternal Age",
+      Variable == "imc_pregestacional" ~ "Pre-pregnancy BMI",
+      Variable == "imc_visita" ~ "BMI at Visit",
+      Variable == "sdg_visita" ~ "Gestational Age at Sample",
+      Variable == "shannon_diversity" ~ "Shannon Diversity",
+      Variable == "extreme_bmi" ~ "Extreme BMI",
+      Variable == "underweight" ~ "Underweight",
+      Variable == "obese" ~ "Obese",
+      Variable == "peso_kg" ~ "Weight at Visit",
+      Variable == "peso_pregestacional_kg" ~ "Pre-pregnancy Weight",
+      Variable == "rpm_preterm" ~ "Preterm PROM",
+      Variable == "hemoglobin_alti_adj" ~ "Hemoglobin (altitude-adj)",
+      Variable == "folic_ac_correg" ~ "Folic Acid Intake",
+      Variable == "vitaminsup" ~ "Vitamin Supplementation",
+      Variable == "talla_mujer_cm" ~ "Height",
+      Variable == "nivel_academico" ~ "Education Level",
+      Variable == "low_education" ~ "Low Education",
+      Variable == "unmarried" ~ "Unmarried Status",
+      Variable == "ses_risk_score" ~ "SES Risk Score",
+      grepl("^CLR_", Variable) ~ gsub("CLR_", "", Variable),
+      grepl("^Genus_", Variable) ~ gsub("Genus_", "", Variable),
+      grepl("imc_pregest_categ", Variable) ~ gsub("imc_pregest_categ_", "BMI Cat: ", Variable),
+      grepl("age_risk_category", Variable) ~ gsub("age_risk_category_", "Age Cat: ", Variable),
+      grepl("sex_baby", Variable) ~ gsub("sex_baby_", "Baby Sex: ", Variable),
+      TRUE ~ Variable
+    ),
+    Variable_clean = str_trunc(Variable_clean, width = 40)
+  ) %>%
+  arrange(desc(Importance))
+
+# Summary statistics
+cat("Feature type distribution (all features):\n")
+print(table(importance_classified$feature_type))
+cat("\n")
+
+cat("Feature type distribution (top 25):\n")
+print(table(importance_classified$feature_type[1:25]))
+cat("\n")
+```
+
+### Panel A: Feature Importance (Top 20)
+
+```{r figure5_panel_a, fig.width=10, fig.height=8}
+# Select top 25 features
+top20_importance <- importance_classified %>% head(20)
+
+# Create importance plot
+panel_a <- top20_importance %>%
+  ggplot(aes(x = reorder(Variable_clean, Importance), 
+             y = Importance, 
+             fill = feature_type)) +
+  
+  # Bars
+  geom_col(alpha = 0.85, width = 0.75, color = "white", linewidth = 0.3) +
+  
+  # Flip coordinates
+  coord_flip() +
+  
+  # Color scale
+  scale_fill_manual(
+    values = c(
+      "Clinical" = "#E74C3C",
+      "Microbiome" = "#3498DB",
+      "Diversity" = "#2ECC71"
+    ),
+    name = "Feature Type"
+  ) +
+  
+  # Labels
+  labs(
+    x = NULL,
+    y = "Variable Importance\n(Mean Decrease in Gini Impurity)",
+    title = NULL
+  ) +
+  
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold", size = 11),
+    legend.text = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    axis.title.x = element_text(size = 11, face = "bold", margin = margin(t = 10)),
+    plot.caption = element_text(size = 9, color = "gray50", hjust = 0, margin = margin(t = 10)),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+print(panel_a)
+
+# Print top 10 for text
+cat("\n=== TOP 10 MOST IMPORTANT FEATURES ===\n\n")
+top10_table <- top25_importance %>%
+  head(10) %>%
+  select(Variable, Variable_clean, feature_type, Importance) %>%
+  mutate(
+    Rank = 1:n(),
+    Importance = round(Importance, 3)
+  ) %>%
+  select(Rank, Feature = Variable_clean, Type = feature_type, Importance)
+
+print(top10_table)
+cat("\n")
+```
+
+### Panel B: Clinical Feature Selection Stability
+
+```{r figure5_panel_b_improved, fig.width=10, fig.height=8}
+cat("╔════════════════════════════════════════════════════════════════════╗\n")
+cat("║  CLINICAL FEATURE SELECTION STABILITY (APPROACH 3)                ║\n")
+cat("╚════════════════════════════════════════════════════════════════════╝\n\n")
+
+if(is.null(best_rf$selected_variables)) {
+  cat("⚠️  WARNING: No selected_variables found in best model.\n")
+  panel_b <- ggplot() + theme_void()
+  
+} else {
+  
+  selected_vars <- best_rf$selected_variables
+  
+  cat(sprintf("Selected variables data: %d rows across %d folds\n", 
+              nrow(selected_vars), length(unique(selected_vars$fold))))
+  
+  # Calculate selection frequency
+  var_frequency <- selected_vars %>%
+    group_by(variable) %>%
+    summarize(
+      n_folds_selected = n_distinct(fold),
+      total_folds = 5,
+      selection_rate = n_folds_selected / 5 * 100,
+      mean_p_value = mean(p_value, na.rm = TRUE),
+      min_p_value = min(p_value, na.rm = TRUE),
+      max_p_value = max(p_value, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(n_folds_selected), mean_p_value)
+  
+  # ========================================================================
+  # MODIFIED: Show ALL clinical features from Approach 3
+  # Not just those in top 25 importance ranking
+  # ========================================================================
+  
+  cat(sprintf("Total unique variables selected across folds: %d\n", nrow(var_frequency)))
+  
+  # Create stability categories
+  var_frequency_plot <- var_frequency %>%
+    mutate(
+      # P-value category (SHORTENED LABELS for legend)
+      p_category = case_when(
+        mean_p_value < 0.01 ~ "p<0.01",
+        mean_p_value < 0.05 ~ "p<0.05",
+        mean_p_value < 0.10 ~ "p<0.10",
+        mean_p_value < 0.20 ~ "p<0.20",
+        TRUE ~ "p≥0.20"
+      ),
+      p_category = factor(p_category, levels = c(
+        "p<0.01", "p<0.05", "p<0.10", "p<0.20", "p≥0.20"
+      )),
+      variable_clean = case_when(
+  # Existing (keep)
+  variable == "edad_cronologicamujer" ~ "Maternal Age",
+  variable == "imc_visita" ~ "BMI at Visit",
+  variable == "peso_pregestacional_kg" ~ "Pre-pregnancy Weight",
+  variable == "peso_kg" ~ "Weight at Visit",
+  variable == "extreme_bmi" ~ "Extreme BMI",
+  variable == "underweight" ~ "Underweight",
+  variable == "obese" ~ "Obese",
+  variable == "hemoglobin_alti_adj" ~ "Hemoglobin (altitude-adj)",
+  variable == "hemoglobin_g_dl" ~ "Hemoglobin",
+  variable == "low_education" ~ "Low Education",
+  variable == "unmarried" ~ "Unmarried Status",
+  variable == "ses_risk_score" ~ "SES Risk Score",
+  variable == "talla_mujer_cm" ~ "Height",
+  variable == "imc_pregestacional" ~ "Pre-pregnancy BMI",
+  variable == "rpm_preterm" ~ "Preterm PROM",
+  variable == "rpm" ~ "PROM",
+  variable == "diabetes_gest" ~ "Gestational Diabetes",
+  variable == "complication_count" ~ "Complication Count",
+  variable == "any_complication" ~ "Any Complication",
+  variable == "anemia_visita" ~ "Anemia at Visit",
+  variable == "folic_ac_correg" ~ "Folic Acid Intake",
+  variable == "vitaminsup" ~ "Vitamin Supplementation",
+  variable == "comp1tribleed" ~ "First Trimester Bleeding",
+  variable == "extreme_age" ~ "Extreme Maternal Age",
+  variable == "workouthome" ~ "Works Outside Home",
+  variable == "maritalstat" ~ "Marital Status",
+  variable == "oligohidramnios" ~ "Oligohydramnios",
+  variable == "compvaginf" ~ "Cervicovaginal Infection",
+  variable == "dietsuppl3mon" ~ "Dietary Supplement Use",
+  variable == "sdg_visita" ~ "Gestational Age at Visit",
+  variable == "age_risk_category" ~ "Age Risk Category",
+  variable == "comppreeclam" ~ "Preeclampsia",
+  variable == "compsexualinf" ~ "Sexually Transmitted Infection",
+  variable == "rciu" ~ "Intrauterine Growth Restriction",
+        TRUE ~ variable
+      )
+    )
+  
+  # Create plot
+  panel_b <- var_frequency_plot %>%
+    ggplot(aes(x = reorder(variable_clean, n_folds_selected), 
+               y = n_folds_selected)) +
+    
+    # Bars colored by p-value strength
+    geom_col(aes(fill = p_category), alpha = 0.85, width = 0.75,
+             color = "white", linewidth = 0.3) +
+    
+    # Color scale for p-value categories
+    scale_fill_manual(
+        name = "Univariate Association Strength",
+        values = c(
+          "p<0.01" = "#0072B2",    
+          "p<0.05" = "#56B4E9",     
+          "p<0.10" = "#F0E442",    
+          "p<0.20" = "#E69F00",     
+          "p≥0.20" = "#D55E00"     
+        ),
+      labels = c("p<0.01", "p<0.05", "p<0.10", "p<0.20", "p≥0.20"),
+      guide = guide_legend(
+        direction = "horizontal",
+        title.position = "top",
+        title.hjust = 0.5,
+        label.position = "bottom",
+        nrow = 1
+      )
+    ) +
+    
+    # Y-axis
+    scale_y_continuous(
+      breaks = 1:5,
+      limits = c(0, 5.5),
+      expand = c(0, 0)
+    ) +
+    
+    # Flip coordinates
+    coord_flip() +
+    
+    # Labels
+    labs(
+      x = NULL,
+      y = "Number of CV Folds Selected (out of 5)",
+      title = NULL
+    ) +
+    
+    # Theme with HORIZONTAL LEGEND
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold", size = 10),
+      legend.text = element_text(size = 9),
+      legend.key.width = unit(2, "cm"),
+      legend.key.height = unit(0.5, "cm"),
+      axis.text.y = element_text(size = 9),
+      axis.text.x = element_text(size = 10),
+      axis.title.x = element_text(size = 11, face = "bold", margin = margin(t = 10)),
+      plot.caption = element_text(size = 8.5, color = "gray50", hjust = 0, 
+                                   margin = margin(t = 10), lineheight = 1.2),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  
+  print(panel_b)
+}
+
+```
+
+### Combined Figure 5: Feature Importance and Selection Stability
+
+```{r figure5_combined, fig.width=16, fig.height=8, message=FALSE, warning=FALSE}
+# Combine panels side-by-side
+figure5_combined <- (panel_a | panel_b) +
+  plot_annotation(
+    tag_levels = 'A',
+    title = sprintf(
+      "Feature Importance and Selection Stability in Best-Performing Random Forest Model\n(Data-driven features with full microbiome | AUROC = %.3f ± %.3f)",
+      best_rf_info$auroc_mean,
+      best_rf_info$auroc_sd
+    ),
+    theme = theme(
+      plot.title = element_text(face = "bold", size = 13, hjust = 0, lineheight = 1.2),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  ) +
+  plot_layout(widths = c(1, 1))
+
+print(figure5_combined)
+
+```
+
+### Summary Statistics for Manuscript Text
+
+```{r figure5_summary_stats}
+cat("╔════════════════════════════════════════════════════════════════════╗\n")
+cat("║  SUMMARY STATISTICS FOR MANUSCRIPT TEXT                            ║\n")
+cat("╚════════════════════════════════════════════════════════════════════╝\n\n")
+
+# Feature type breakdown in top 25
+feature_type_counts <- table(top25_importance$feature_type)
+
+cat("Feature composition in top 25:\n")
+for(type in names(feature_type_counts)) {
+  cat(sprintf("  - %s: %d (%.1f%%)\n", 
+              type,
+              feature_type_counts[type],
+              100 * feature_type_counts[type] / 25))
+}
+
+cat("\nTop 5 features overall:\n")
+for(i in 1:5) {
+  cat(sprintf("  %d. %s [%s] (importance = %.3f)\n",
+              i,
+              top25_importance$Variable_clean[i],
+              top25_importance$feature_type[i],
+              top25_importance$Importance[i]))
+}
+
+cat("\nTop 3 clinical features:\n")
+top_clinical <- top25_importance %>%
+  filter(feature_type == "Clinical") %>%
+  head(3)
+for(i in 1:nrow(top_clinical)) {
+  cat(sprintf("  %d. %s (importance = %.3f)\n",
+              i,
+              top_clinical$Variable_clean[i],
+              top_clinical$Importance[i]))
+}
+
+cat("\nTop 3 microbiome features:\n")
+top_microbiome <- top25_importance %>%
+  filter(feature_type == "Microbiome") %>%
+  head(3)
+if(nrow(top_microbiome) > 0) {
+  for(i in 1:nrow(top_microbiome)) {
+    cat(sprintf("  %d. %s (importance = %.3f)\n",
+                i,
+                top_microbiome$Variable_clean[i],
+                top_microbiome$Importance[i]))
+  }
+} else {
+  cat("  (No microbiome features in top 3)\n")
+}
+
+cat("\n")
+```
+
+### Figure 5 Legend
+
+**Figure 5. Feature Importance and Selection Stability in Best-Performing Random Forest Model.**
+
+**(A)** Variable importance for the top 25 predictive features based on mean decrease in Gini impurity. Importance reflects how much each feature contributes to reducing impurity across all decision trees in the Random Forest ensemble, with higher values indicating greater discriminatory power between preterm and term births. Features are colored by type: clinical variables (red, n=[X]), microbial genera (blue, n=[Y]), and diversity metrics (green, n=[Z]). Anthropometric features—particularly BMI-related variables (BMI at visit, pre-pregnancy weight, extreme BMI status, underweight indicators)—dominate the upper importance ranks, consistent with population-specific maternal health patterns in this Mexican cohort. Microbiome features appear throughout the importance hierarchy rather than clustered at low ranks, with genera such as [top 3 genera] demonstrating importance comparable to several clinical risk factors, supporting the complementary predictive value of vaginal microbiome profiling alongside traditional clinical assessment.
+
+**(B)** Selection stability of all clinical features identified through data-driven univariate screening (Approach 3) across 5 cross-validation folds. Univariate screening was performed independently within each training fold using a liberal p<0.30 threshold, with top 10 features selected per fold after collinearity resolution. Bar height indicates selection frequency (number of folds selecting each feature, out of 5), while bar color represents the strength of univariate association with preterm birth (mean p-value across selected folds): dark green (p<0.01, very strong), light green (p<0.05, strong), yellow (p<0.10, moderate), orange (p<0.20, weak), and red (p≥0.20, very weak). All 20 unique clinical variables selected across the 5 folds are shown. No features were selected in all 5 folds (very stable), indicating substantial inter-fold variability in univariate associations, likely reflecting the modest sample size (n=43 subjects) and borderline statistical power for individual predictors. Features selected in 4 folds with strong univariate associations (e.g., Extreme BMI: 4/5 folds, p=0.0003) represent the most robust clinical predictors. Divergent patterns emerge: some features show strong univariate associations (p<0.05) but low selection frequency (1-2 folds), suggesting fold-specific patterns or collinearity-driven exclusion, while others are consistently selected (4 folds) despite moderate univariate associations (p~0.10), potentially reflecting importance in multivariate context. Microbiome features are not shown as the best-performing model used the full microbiome approach (all 59 genera included in all folds) rather than fold-specific selection.
+
+**Technical notes:**
+- Feature importance calculated from final Random Forest model trained on complete dataset (n=110 samples, 43 subjects, 500 trees, mtry=4, min.node.size=10).
+- Importance metric: Mean decrease in Gini impurity, averaged across all trees in ensemble.
+- Clinical feature selection performed using data-driven univariate screening (liberal p<0.30 threshold) independently in each cross-validation fold.
+- Model configuration: Approach 3 (data-driven features) + Full Microbiome (59 genera).
+- Model performance: AUROC = [0.849 ± 0.130], PRAUC = [0.571 ± 0.208] from 5-fold subject-level nested cross-validation.
+
+**Methodological note on importance metric:**
+Gini impurity-based importance was used rather than permutation-based importance due to computational compatibility with the tidymodels workflow framework employed in this study. While permutation importance offers theoretical advantages (unbiased by class imbalance, more interpretable as performance degradation), Gini importance remains a widely accepted metric in Random Forest applications and provides convergent evidence when combined with selection stability analysis (Panel B). The consistency of feature selection across independent folds (Panel B) supports the robustness of identified clinical predictors beyond single-model importance estimates.
 
 
 ```{r performance_comparison_plot, fig.width=12, fig.height=8}

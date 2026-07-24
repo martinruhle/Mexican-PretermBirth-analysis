@@ -35,7 +35,13 @@
 # SENSITIVE DATA - NEVER COMMIT
 # ================================================
 # Raw microbiome data (restricted by ethics)
-data/raw/
+data/raw/*
+!data/raw/.gitkeep
+
+# Derived/intermediate data (regenerable from raw + pipeline, not versioned)
+data/processed/*
+!data/processed/.gitkeep
+
 data/abundances/
 data/microbiome/
 *abundance*.csv
@@ -45,6 +51,7 @@ data/microbiome/
 
 # Exclude actual microbiome files
 !data/example/abundance_example.csv
+!data/example/.gitkeep
 
 # Any files explicitly marked as sensitive
 *_sensitive.*
@@ -246,3 +253,8 @@ draft_*/
 *.pem
 *.key
 *.crt
+
+# Herramientas locales de desarrollo — no publicar
+.claude/
+CLAUDE.md
+docs/PLAYBOOK_reproducibilidad.md

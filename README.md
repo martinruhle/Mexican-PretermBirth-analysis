@@ -63,24 +63,41 @@ Mexican-PretermBirth-analysis/
 │
 ├── README.md                          # This file
 ├── LICENSE                            # MIT License
+├── CITATION.cff                       # Citation metadata
+├── DESCRIPTION                        # Research compendium / package metadata
 ├── .gitignore                         # Git ignore rules
+├── .Rprofile                          # Activates renv on session start
 ├── renv.lock                          # R package dependencies (reproducibility)
 │
 ├── .github/
 │   └── workflows/
 │       └── check-code.yml             # GitHub Actions CI/CD
 │
-├── code/
-│   └── integrated_preterm_prediction_workflow.Rmd    # Main analysis (R Markdown)
+├── R/                                 # Pure functions used by the pipeline (roxygen-documented)
+│
+├── analysis/
+│   ├── integrated_preterm_prediction_workflow.Rmd    # Main analysis (R Markdown)
+│   └── permutation_test_nested_cv.Rmd                # Permutation test on the fitted pipeline
+│
+├── scripts/
+│   └── sensitivity_nonindependence_weight.R          # Sensitivity analysis (sample weighting)
+│
+├── config/
+│   └── config.yml                     # Pipeline configuration profiles (default, ...)
 │
 ├── data/
 │   ├── metadata/
 │   │   ├── diccionario_variables_completo.csv        # Variable dictionary
 │   │   ├── metadata_eugenia_long.csv                 # Longitudinal clinical data
 │   │   └── participant_data_clean.csv                # Participant-level data
-│   ├── example/
-│   │   └── abundance_example.csv                     # Example microbiome data structure
+│   ├── example/                       # Synthetic example data (versioned)
+│   ├── raw/                           # Restricted raw microbiome data (gitignored)
+│   ├── processed/                     # Derived/intermediate data (gitignored)
+│   ├── data_dictionary.csv            # Variable dictionary for processed datasets
 │   └── README_DATA.md                                # Data documentation
+│
+├── tests/
+│   └── testthat/                      # Unit tests for functions in R/
 │
 ├── results/
 │   ├── integrated_preterm_prediction_workflow.pdf    # Rendered analysis report
@@ -155,10 +172,10 @@ results/integrated_preterm_prediction_workflow.pdf
 **Option 2:** Run the R Markdown notebook (requires full microbiome data):
 ```r
 # Open in RStudio
-file.edit("code/integrated_preterm_prediction_workflow.Rmd")
+file.edit("analysis/integrated_preterm_prediction_workflow.Rmd")
 
 # Or render from command line
-rmarkdown::render("code/integrated_preterm_prediction_workflow.Rmd")
+rmarkdown::render("analysis/integrated_preterm_prediction_workflow.Rmd")
 ```
 
 **Note:** The full analysis requires restricted microbiome abundance data not included in this repository. The example data structure is provided in `data/example/`. See [Data Access](#data) for information on requesting complete data.
@@ -245,7 +262,7 @@ For detailed data documentation, see **[data/README_DATA.md](data/README_DATA.md
 - **Sensitivity/Specificity:** Clinical interpretation at optimized threshold
 - **Threshold optimization:** Youden's Index on independent validation data
 
-For complete methodological details, see the manuscript and `code/integrated_preterm_prediction_workflow.Rmd`.
+For complete methodological details, see the manuscript and `analysis/integrated_preterm_prediction_workflow.Rmd`.
 
 ---
 

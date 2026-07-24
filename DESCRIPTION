@@ -1,0 +1,19 @@
+Package: ptbpredict
+Title: Nested Cross-Validation Pipeline for Preterm Birth Prediction from Vaginal Microbiome and Clinical Data
+Version: 0.0.0.9000
+Authors@R:
+    person("Martin", "Ruhle", email = "martinruhle@gmail.com", role = c("aut", "cre"))
+Description: Research compendium implementing a nested cross-validation
+    pipeline that predicts preterm birth from vaginal microbiome profiles
+    and clinical variables in a Mexican pregnancy cohort.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 4.4.2)
+Imports:
+    tidymodels
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

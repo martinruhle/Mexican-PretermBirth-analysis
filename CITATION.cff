@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software or the accompanying data, please cite the associated article."
+title: "Machine Learning Models for Preterm Birth Prediction Using Vaginal Microbiome Profiles in a Mexican Cohort"
+type: software
+license: MIT
+repository-code: "https://github.com/martinruhle/Mexican-PretermBirth-analysis"
+authors:
+  - family-names: "Ruhle"
+    given-names: "Martin"
+    email: "martinruhle@gmail.com"
+preferred-citation:
+  type: article
+  title: "Leakage-aware machine learning reveals structured clinical and vaginal microbiome patterns associated with preterm birth in a Mexican cohort"
+  authors:
+    - family-names: "Ruhle"
+      given-names: "Martin"
+  journal: "Frontiers in Global Women's Health"
+  volume: "7"
+  year: 2025
+  doi: "10.3389/fgwh.2026.1799518"
