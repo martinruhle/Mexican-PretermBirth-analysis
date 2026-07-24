@@ -79,14 +79,21 @@ default:
       collinearity_cutoff: 0.95        # [codigo L3319]
 
   preprocessing:
-    # >>> PSEUDOCOUNT DEL CLR — SIN RESOLVER. Problema de RESULTADOS, no de config. <<<
-    # Datos (abundancias relativas): min no-cero = 2.1e-5, mediana no-cero = 2.2e-3, 80.7% ceros, rowSums=1.
-    # El .Rmd usa 0.65 (escala de CONTEOS): ~290x la abundancia tipica, 99.3% de las celdas <0.65,
-    # aplasta ~4500x la varianza log-ratio (Prevotella/Ureaplasma/Sneathia pierden 700-1600x su SD;
-    # Lactobacillus/Gardnerella solo 3-6x). Valor correcto < 2.1e-5. Opciones: 1e-6 | ~1e-5 |
-    # zCompositions::cmultRepl. EXIGE re-correr y comparar contra baseline (playbook §9) antes de fijarlo.
-    # R/clr.R (Chat 2) DEBE validar !is.null(clr_pseudocount) y detenerse con mensaje claro si sigue null.
-    clr_pseudocount: null            # PENDIENTE (el .Rmd hoy tiene 0.65 hardcodeado en L1494 y L3073)
+    # CLR — RESUELTO (2026-07-21, task_bd97ada6). Transformacion composicional POR MUESTRA:
+    # cada muestra se cierra por la media geometrica de sus propios taxa (rows sum 0); row-local =>
+    # sin fuga train->test. Los ceros se reemplazan ANTES con estimacion Bayesian-multiplicative
+    # (zCompositions::cmultRepl), aprendida UNA vez sobre el microbioma completo (outcome-blind;
+    # per-fold inviable por taxa all-zero en algunos splits). Reemplaza al viejo pseudocount 0.65,
+    # que era un bug (centrado por-feature = log(x+0.65) tras step_normalize; el microbioma nunca se CLR-transformo).
+    # Verificado en el .Rmd: fit_clr_zerorepl() (~L3090) + apply_clr_transform(data,taxa_cols,zero_levels) (~L3112).
+    clr:
+      method: "per_sample_clr"          # [codigo ~L3122]  logM - rowMeans(logM)
+      zero_replacement: "cmultRepl"      # [codigo ~L3095]  zCompositions::cmultRepl
+      cmultRepl_method: "GBM"            # [codigo ~L3096]
+      z_delete: false                    # [codigo ~L3097]  conservar taxa/muestras (matriz 68-81% ceros)
+      z_warning: 1                       # [codigo ~L3097]
+      levels_fit_on: "full_microbiome"   # [codigo ~L4125]  niveles aprendidos una vez, outcome-blind
+      floor_fallback: 1.0e-6             # [codigo ~L3105]  piso para taxa ausentes en train
     prevalence_filter:   0.05        # [codigo L1390]  genero presente en >=5% de muestras
     completeness_min:    0.80        # [codigo L2190]
     collinearity_cutoff: 0.95        # [codigo L2203]

@@ -3941,7 +3941,7 @@ train_with_nested_cv <- function(model_name, model_spec,
     add_recipe(rec_final) %>%
     add_model(model_spec)
   
-  set.seed(42)  # Reproducibility
+  set.seed(123)  # Reproducibility (unificado a 123 con la semilla del pipeline; antes 42)
   
   final_model_fit <- tryCatch({
     fit(wf_final, data = full_data_final)
