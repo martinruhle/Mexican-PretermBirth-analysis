@@ -4269,8 +4269,10 @@ cat("\n")
 ### Panel A: Feature Importance (Top 20)
 
 ```{r figure5_panel_a, fig.width=10, fig.height=8}
-# Select top 25 features
+# Top features: 20 for the plot, 25 for the text/summary tables below
+# (top25_importance is also used by the figure5_summary_stats chunk).
 top20_importance <- importance_classified %>% head(20)
+top25_importance <- importance_classified %>% head(25)
 
 # Create importance plot
 panel_a <- top20_importance %>%
