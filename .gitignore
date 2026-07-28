@@ -88,6 +88,11 @@ data/microbiome/
 # *.html
 # *.pdf
 
+# Rendered pipeline outputs + knitr figures (regenerables via scripts/run_baseline.R):
+# HTML, metricas de referencia (*_metrics.csv), *_cv_summary.rds y los PNG de figuras.
+analysis/_output/
+analysis/figures/
+
 # Temporary output
 *.tmp
 *.temp
