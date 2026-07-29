@@ -263,3 +263,6 @@ draft_*/
 .claude/
 CLAUDE.md
 docs/PLAYBOOK_reproducibilidad.md
+
+data/metadata/*
+!data/metadata/.gitkeep

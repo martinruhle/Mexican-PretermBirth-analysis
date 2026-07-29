@@ -10,12 +10,16 @@
 #     passed in (learned once on the full microbiome) instead of being read from a
 #     global default. (Chat 2 decision: "thread as arg, compute in driver".)
 #
+# ✓ RESOLVED in Chat 3 (now explicit arguments of train_with_nested_cv()):
+#     - `genera_clean`   contaminant-filtered genus list -> `genera_clean` argument.
+#     - the hardcoded absolute `abs_file` + positional indexing (row.names = 98,
+#       [, 1:97], [, 98:166]) -> `abs_data` argument, produced once by
+#       io.R::load_abs_matrix(cfg) (config abs_matrix_path, split by NAME).
+#
 # ⚠ GLOBAL-STATE DEPENDENCIES still present in train_with_nested_cv() — these are
 #   read from the calling (global) environment and are flagged inline with
-#   "GLOBAL DEP" comments to be resolved in later chats (config / io / models):
+#   "GLOBAL DEP" comments to be resolved in later chats (config / models):
 #     - `subject_labels`            (subject-level outcome table for the inner split)
-#     - `genera_clean`              (contaminant-filtered genus list, for the ANCOM path)
-#     - hardcoded absolute `abs_file` path + positional column indexing (Chat 3, io.R)
 #     - univariate-screening helpers used in the Approach-3 branch:
 #         calculate_completeness, filter_by_completeness,
 #         calculate_univariate_association, prioritize_continuous,
@@ -79,6 +83,14 @@ detect_prob_col <- function(df, pos_class = "1") {
 #'   levels from [fit_clr_zerorepl()], learned once on the full microbiome and
 #'   passed to every [apply_clr_transform()] call (threaded in explicitly rather
 #'   than read from a global).
+#' @param genera_clean Character vector of contaminant-filtered genus names
+#'   (post prevalence + decontaminant filter). Required when
+#'   `microbiome_option == "ANCOM_Taxa"`; the ANCOM OTU table is restricted to
+#'   these genera. Passed in explicitly (Chat 3) instead of read from a global.
+#' @param abs_data Absolute-count data for ANCOM-BC2 as a list with `otu`
+#'   (samples x taxa) and `meta` (subject_id + clinical), from
+#'   [load_abs_matrix()]. Required when `microbiome_option == "ANCOM_Taxa"`.
+#'   Replaces the old hardcoded absolute path + positional indexing.
 #' @param use_pca Logical; if `TRUE` and there are >10 taxa, adds a PCA step to the
 #'   recipe. Default `FALSE`.
 #'
@@ -90,7 +102,9 @@ detect_prob_col <- function(df, pos_class = "1") {
 train_with_nested_cv <- function(model_name, model_spec,
                                   clinical_data_all, microbiome_data_all,
                                   approach_name, microbiome_option,
-                                  cv_folds, clr_zero_levels, use_pca = FALSE) {
+                                  cv_folds, clr_zero_levels,
+                                  genera_clean = NULL, abs_data = NULL,
+                                  use_pca = FALSE) {
 
   cat(sprintf("\n========================================\n"))
   cat(sprintf("MODEL: %s | %s | %s\n",
@@ -259,28 +273,27 @@ train_with_nested_cv <- function(model_name, model_spec,
 
       cat("  Performing ANCOM-BC2 on outer training subjects...\n")
 
-      # GLOBAL DEP + Chat 3: hardcoded absolute path and positional column
-      # indexing (row.names = 98, [, 1:97], [, 98:166]). Move to config/io.R.
-      # Load absolute abundance data
-      abs_file <- "C:/Users/marti/Documents/Datos_mexicanos/genus_rel_filtered_2025-05-25_abs.csv"
-
-      if(!file.exists(abs_file)) {
-        cat("  ERROR: Absolute abundance file not found\n")
-        cat("  Path:", abs_file, "\n")
-        fold_results[[fold_idx]] <- NULL
-        next
+      # Chat 3: la matriz de conteos absolutos llega PRECARGADA vía io.R
+      # load_abs_matrix(cfg) (config abs_matrix_path, split por NOMBRE), en lugar
+      # de una ruta absoluta hardcodeada + indexado posicional
+      # (read.csv(row.names = 98), [, 1:97] OTU, [, 98:166] metadata).
+      if(is.null(abs_data)) {
+        stop("microbiome_option = 'ANCOM_Taxa' requiere abs_data = ",
+             "load_abs_matrix(cfg); se recibió NULL.", call. = FALSE)
       }
+      otu_table_raw <- abs_data$otu    # samples x 97 taxa (rownames = sample_id)
+      meta_data_raw <- abs_data$meta   # subject_id + clínicas (mismas filas/orden)
 
-      full_data_abs <- read.csv(abs_file, row.names = 98)
-      otu_table_raw <- full_data_abs[, 1:97]
-      # ── Filtrar OTU table al mismo conjunto de géneros que micro_genus_full ──────
-      # GLOBAL DEP: `genera_clean` (contaminant-filtered genus list, defined in the
-      # decontaminant_filter chunk). Pass via config/argument later.
+      # ── Filtrar OTU table al mismo conjunto de géneros limpios (genera_clean) ────
+      # genera_clean ahora entra por argumento (antes se leía del entorno global).
+      if(is.null(genera_clean)) {
+        stop("microbiome_option = 'ANCOM_Taxa' requiere genera_clean ",
+             "(lista de géneros post-decontaminante).", call. = FALSE)
+      }
       cols_to_keep <- intersect(genera_clean, colnames(otu_table_raw))
-      otu_table_raw <- otu_table_raw[, cols_to_keep]
+      otu_table_raw <- otu_table_raw[, cols_to_keep, drop = FALSE]
       cat(sprintf("  OTU table filtered to %d clean genera\n", ncol(otu_table_raw)))
       # ─────────────────────────────────────────────────────────────────────────────
-      meta_data_raw <- full_data_abs[, 98:166]
 
       # Run ANCOM-BC2 on this fold's training subjects
       selected_taxa_fold <- tryCatch({

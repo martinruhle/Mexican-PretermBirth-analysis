@@ -17,8 +17,9 @@
 #   RENV_CONFIG_AUTOLOADER_ENABLED=FALSE R_PROFILE_USER=/dev/null \
 #     "/c/Program Files/R/R-4.4.2/bin/Rscript.exe" scripts/run_baseline.R
 #
-# REQUISITO: los datos reales en C:/Users/marti/Documents/Datos_mexicanos/ (el .Rmd
-# los lee de ahi via setwd(); eso se elimina en el Chat 3).
+# REQUISITO (post Chat 3): los datos reales copiados a data/raw/ (gitignored), con los
+# nombres que declara config/config.yml (matrix_path/abs_matrix_path/metadata_path). El
+# .Rmd ya NO usa setwd() ni rutas absolutas: lee de config vía io.R::load_dataset().
 # =============================================================================
 
 stopifnot(requireNamespace("rmarkdown", quietly = TRUE))

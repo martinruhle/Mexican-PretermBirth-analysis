@@ -587,27 +587,45 @@ cat("All packages loaded successfully!\n",
 
 **Purpose**: Load complete dataset containing microbiome relative abundances, clinical/demographic variables, and pregnancy outcomes.
 
-**Data Structure**:
-- **Microbiome**: Genus-level relative abundances (columns 1-99)
-- **Clinical**: Demographics, anthropometrics, complications (columns 98-167)
-- **Outcomes**: Gestational age at delivery, preterm status (binary)
+**Data Structure** (dominios separados por nombre vía `role` en `config/data_dictionary.csv`, no por posición):
+- **Microbiome**: Genus-level relative abundances (`role = microbiome`; 97 taxa)
+- **Clinical**: Demographics, anthropometrics, complications (columnas no-taxa)
+- **Keys / Outcomes**: `index` (sample_id), `id` (subject_id), `sdg_parto` (GA), `preterm` (binary)
 
 **Sample**: Each row represents one vaginal swab sample; multiple samples per subject collected longitudinally during pregnancy.
 
 ```{r load_data}
-# Load datasets
-# Set working directory
-working_directory <- "C:/Users/marti/Documents/Datos_mexicanos/"
-setwd(working_directory)
+# ----------------------------------------------------------------------------
+# Config-driven data loading (Chat 3). No setwd(), no absolute paths: rutas,
+# nombres de columnas y contrato de datos salen de config/config.yml +
+# config/data_dictionary.csv, resueltos con here::here() relativo al root.
+# I/O y validación viven en R/ (fuente única de verdad), cargadas por source()
+# con local = TRUE para que caigan en el entorno de render (mismo patrón que el
+# chunk nested_cv_helper_functions).
+# ----------------------------------------------------------------------------
+source(here::here("R", "io.R"),            local = TRUE)
+source(here::here("R", "data_contract.R"), local = TRUE)
 
-# Load datasets
-complete_data <- read_csv("genus_rel_filtered_2025-05-25.csv")
-metadata_long <- read_csv("metadata_eugenia_long.csv")
-participant_data <- read_csv("participant_data_clean.csv")
+cfg <- read_config()   # PTB_PROFILE (default = "default")
 
-# Separate data domains
-micro_data <- complete_data[, 1:99]
-clin_data <- complete_data[, 98:167]
+# Load datasets from config paths (matrix_path / metadata_path / participant_path).
+datasets      <- load_dataset(cfg)
+complete_data <- datasets$matrix
+metadata_long <- datasets$metadata
+# participant_data_clean.csv se CARGA-pero-NO-se-usa en el pipeline: participant_path
+# está en null en el config, así que load_dataset() no lo lee (datasets$participant = NULL).
+
+# Validate against the data contract: falla claro si falta una columna clave, el
+# outcome no es binario, faltan taxa del diccionario, las taxa no están en [0,1], o
+# los sample_id/subject_id no casan entre la matriz y la metadata.
+validate_input_data(complete_data, metadata_long, cfg)
+
+# Separate data domains BY NAME (role = microbiome en data_dictionary.csv), nunca por
+# posición. Corrige el solapamiento del viejo micro_data[,1:99] / clin_data[,98:167],
+# donde las columnas 98-99 (index, id — las llaves) caían en AMBOS bloques.
+domains    <- split_domains(complete_data, cfg)
+micro_data <- domains$microbiome   # index, id + 97 taxa (idéntico a data[,1:99])
+clin_data  <- domains$clinical     # index, id + 68 clínicas (idéntico a data[,98:167])
 preterm_data <- complete_data[, c("index", "id", "sdg_parto", "preterm", "early_preterm")]
 
 cat("=== DATA IMPORT SUMMARY ===\n\n",
@@ -1435,15 +1453,9 @@ genus_prevalence %>%
 ## Decontaminant filter
 
 ```{r decontaminant_filter}
-# Cured list based on Salter et al. 2014, Eisenhofer et al. 2019
-contaminant_genera <- c(
-  # Confirmados por Salter et al. 2014 (Table 1)
-  "Methylobacterium", "Methylorubrum",  # Sinónimos taxonómicos
-  "Ralstonia", "Mesorhizobium", "Microbacterium",
-  "Bradyrhizobium", "Sphingomonas", "Pseudomonas", "Acinetobacter",
-  # No bacteriano
-  "o__Chloroplast"
-)
+# Lista de contaminantes desde config (preprocessing.contaminant_genera), ya no
+# hardcodeada. Basada en Salter et al. 2014 / Eisenhofer et al. 2019.
+contaminant_genera <- cfg$preprocessing$contaminant_genera
 
 # Filtrar genera
 genera_clean <- genera_to_keep[!genera_to_keep %in% contaminant_genera]
@@ -2565,8 +2577,10 @@ cat(
   "Actual taxa selection occurs within train_with_nested_cv() function.\n\n"
 )
 
-# Load absolute abundance data (REQUIRED for ANCOM-BC2)
-abs_file <- "C:/Users/marti/Documents/Datos_mexicanos/genus_rel_filtered_2025-05-25_abs.csv"
+# Abs-count file existence check via config path (no absolute paths). La carga y el
+# split por nombre los hace io.R::load_abs_matrix(cfg) en run_nested_cv; aquí solo se
+# verifica la disponibilidad para esta sección demostrativa.
+abs_file <- here::here(cfg$data$abs_matrix_path)
 
 if(!file.exists(abs_file)) {
   stop("Absolute abundance file not found. ANCOM-BC requires count data.\n",
@@ -3179,6 +3193,16 @@ cat(sprintf("CLR zero-replacement learned for %d taxa (min=%.2e, median=%.2e, ma
             length(clr_taxa_all), min(clr_zero_levels), median(clr_zero_levels), max(clr_zero_levels)))
 
 # ============================================================================
+# ABS-COUNT MATRIX FOR ANCOM-BC2 (loaded once, by name, from config)
+# ============================================================================
+# Reemplaza la lectura por-fold de una ruta absoluta hardcodeada. io.R separa la
+# matriz en otu (taxa) y meta (subject_id + clínicas) por NOMBRE. Se pasa a
+# train_with_nested_cv() junto con genera_clean (solo la rama ANCOM_Taxa la usa).
+abs_data <- load_abs_matrix(cfg)
+cat(sprintf("Abs-count matrix loaded for ANCOM-BC2: %d samples × %d taxa\n\n",
+            nrow(abs_data$otu), ncol(abs_data$otu)))
+
+# ============================================================================
 # RUN NESTED CV FOR ALL COMBINATIONS
 # ============================================================================
 
@@ -3212,6 +3236,8 @@ cat(
         microbiome_option = microbiome$name,
         cv_folds = cv_folds,
         clr_zero_levels = clr_zero_levels,   # threaded in (was a global default in apply_clr_transform)
+        genera_clean = genera_clean,         # Chat 3: era global (chunk decontaminant_filter)
+        abs_data = abs_data,                 # Chat 3: era ruta absoluta + indexado posicional
         use_pca = model$pca
       )
       

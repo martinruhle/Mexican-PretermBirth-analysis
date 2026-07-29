@@ -18,7 +18,11 @@ default:
     # Rutas relativas al root (usar here::here()); NUNCA setwd(). Los datos reales viven
     # FUERA de git (data/raw/ esta gitignored): hay que copiarlos ahi antes de correr.
     matrix_path:      "data/raw/genus_rel_filtered_2025-05-25.csv"      # [codigo L604] matriz ancha: 97 taxa (rel) + index + id + 68 clinicas
-    abs_matrix_path:  "data/raw/genus_rel_filtered_2025-05-25_abs.csv"  # [codigo L3386][datos] conteos absolutos (97 taxa) — REQUERIDO por ANCOM-BC2
+    abs_matrix_path:  "data/raw/genus_rel_filtered_2025-05-25_abs.csv"  # [codigo][datos] conteos absolutos (97 taxa) — REQUERIDO por ANCOM-BC2.
+    #   Chat 3: io.R::load_abs_matrix() lo lee por NOMBRE con check.names=FALSE. El viejo
+    #   read.csv(row.names=98) mangleaba 'Escherichia-Shigella'->'Escherichia.Shigella' y lo
+    #   dropeaba silenciosamente del pool ANCOM (48 vs 49 taxa). Fix aceptado -> re-baseline
+    #   de las 6 combos ANCOM_Taxa (Full_Microbiome sin cambios).
     metadata_path:    "data/raw/metadata_eugenia_long.csv"             # [codigo L605] metadata longitudinal (figuras de poblacion)
     participant_path: null                                             # [codigo L606] participant_data_clean.csv se CARGA pero NO se usa -> null
     data_dictionary:  "config/data_dictionary.csv"                     # [supuesto] contrato de datos + fuente de la lista de taxa
