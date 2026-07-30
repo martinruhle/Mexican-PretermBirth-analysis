@@ -195,3 +195,24 @@ default:
   output:
     dir: "analysis/_output"          # [supuesto]  figuras/tablas generadas (gitignored)
     save_folds: true                 # [supuesto]  guardar splits para replicacion exacta
+
+# =============================================================================
+# Perfil example:  —  datos 100% SINTETICOS (Chat 5), para correr el pipeline de
+# punta a punta sin data/raw/. Los CSV los genera scripts/generate_example_data.R
+# y viven en data/example/ (versionado). NO reproduce el baseline real: son datos
+# distintos; el criterio es que las 12 combinaciones y las figuras corran sin error.
+#
+# Solo se redefine el bloque `data:` (COMPLETO, porque el merge de read_config()
+# reemplaza data wholesale). Todo lo demas (columns, approaches, preprocessing, cv,
+# models, microbiome_options, feature_selection, output) se hereda de default:.
+# Correr:  PTB_PROFILE=example Rscript scripts/run_baseline.R
+# =============================================================================
+example:
+
+  data:
+    matrix_path:      "data/example/example_genus_rel.csv"       # matriz ancha sintetica: 97 taxa (rel) + 70 no-taxa
+    abs_matrix_path:  "data/example/example_genus_abs.csv"       # mismos taxa como CONTEOS enteros (ANCOM-BC2)
+    metadata_path:    "data/example/example_metadata_long.csv"   # id/index/preterm/sdg_parto/sdg_visita (figuras poblacion)
+    participant_path: null                                       # no se usa (igual que default)
+    data_dictionary:  "config/data_dictionary.csv"               # MISMO contrato/lista de taxa que default
+    microbiome_columns_from: "data_dictionary"                   # dominios por lista explicita (role=microbiome)
