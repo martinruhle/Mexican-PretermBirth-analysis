@@ -45,26 +45,33 @@ default:
 
     # ---- Approach 2: Literatura (CANDIDATOS + REGLAS; NO lista fija de 10) ------------
     # [codigo L2134] El resultado se recomputa por dataset -> se guardan candidatos + reglas.
+    # Chat 4: cada variable lleva {evidence, source} COPIADOS VERBATIM del tribble
+    # `approach2_candidates` del .Rmd (chunk approach2_setup). El .Rmd reconstruye el tribble
+    # 100% desde aqui. `evidence` alimenta el ranking de resolucion de colinealidad (STEP 3,
+    # que solo se dispara si hay pares |r|>cutoff — en la cohorte mexicana NO se dispara) y
+    # el orden de seleccion (STEP 4). `source` es SOLO display (tabla del STEP 5), no entra en
+    # ninguna logica. El ORDEN de las claves es load-bearing: rompe empates en head(target_n)
+    # del STEP 4 -> respeta el orden del tribble original (core primero, luego candidatos).
     approach2_literature:
-      core_vars:                  # siempre presentes (evidencia en .Rmd: sdg_visita="Essential", edad="Very Strong")
-        - "sdg_visita"
-        - "edad_cronologicamujer"
-      candidates:                 # variable: fuerza_de_evidencia   [codigo L2141-2163]
-        imc_pregestacional:     "Very Strong"
-        peso_pregestacional_kg: "Strong"
-        comp1tribleed:          "Very Strong"   # <- faltaba en el borrador del playbook (recuperado)
-        oligohidramnios:        "Strong"
-        diabetes_gest:          "Strong"
-        comppreeclam:           "Very Strong"
-        rpm:                    "Very Strong"
-        compvaginf:             "Strong"
-        anemia_visita:          "Strong"
-        hemoglobin_alti_adj:    "Moderate"
-        folic_ac_correg:        "Moderate"
-        dietsuppl3mon:          "Moderate"
-        nivel_academico:        "Moderate"
-        maritalstat:            "Moderate"
-        ses_risk_score:         "Strong"        # feature de ingenieria (chunk feature_engineering L2014)
+      core_vars:                  # siempre presentes (se agregan por nombre en STEP 4)
+        sdg_visita:            {evidence: "Essential",   source: "Timing-dependent risk"}
+        edad_cronologicamujer: {evidence: "Very Strong", source: "U-shaped relationship (Goldenberg 2008)"}
+      candidates:                 # variable: {evidence, source}   [codigo L2141-2173]
+        imc_pregestacional:     {evidence: "Very Strong", source: "Both extremes (BMI<18.5, >30) increase risk"}
+        peso_pregestacional_kg: {evidence: "Strong",      source: "Related to BMI but independent effect"}
+        comp1tribleed:          {evidence: "Very Strong", source: "OR 2.6 (95% CI: 1.9-3.6)"}
+        oligohidramnios:        {evidence: "Strong",      source: "Marker of placental insufficiency"}
+        diabetes_gest:          {evidence: "Strong",      source: "OR 1.5 (95% CI: 1.2-1.8)"}
+        comppreeclam:           {evidence: "Very Strong", source: "OR 3.1 (95% CI: 2.4-4.0)"}
+        rpm:                    {evidence: "Very Strong", source: "Direct PTB mechanism"}
+        compvaginf:             {evidence: "Strong",      source: "Infection-mediated PTB"}
+        anemia_visita:          {evidence: "Strong",      source: "OR 1.3-1.7 depending on severity"}
+        hemoglobin_alti_adj:    {evidence: "Moderate",    source: "Continuous measure preferred"}
+        folic_ac_correg:        {evidence: "Moderate",    source: "Some evidence for protective effect"}
+        dietsuppl3mon:          {evidence: "Moderate",    source: "Some evidence for protective effect"}
+        nivel_academico:        {evidence: "Moderate",    source: "SES proxy"}
+        maritalstat:            {evidence: "Moderate",    source: "Social support proxy"}
+        ses_risk_score:         {evidence: "Strong",      source: "Socioeconomic risk proxy"}   # feature de ingenieria (chunk feature_engineering)
       rules:
         completeness_min:    0.80   # [codigo L2190]  >=80% sujetos completos
         collinearity_cutoff: 0.95   # [codigo L2203]  |r|>0.95 (la prosa/mensajes dicen 0.85 -> gana el codigo)
@@ -139,6 +146,31 @@ default:
       engine: "glmnet"
       penalty: 0.01                  # [codigo L2729]
       mixture: 0.5                   # [codigo L2730]
+
+  # Reservados para dataset ampliado; NO activos — requieren revalidar convergencia con n
+  # mayor (con n=43 no convergen de forma confiable). Ver roadmap en CLAUDE.md.
+  # build_model_specs() los IGNORA (solo lee `models:`). Valores copiados EXACTO del chunk
+  # model_specifications del .Rmd (specs muertos). Activar = mover a `models:` + revalidar.
+  models_future:
+    xgb_base:
+      engine: "xgboost"
+      trees: 100                     # [codigo model_specifications]
+      tree_depth: 3
+      learn_rate: 0.05
+      min_n: 8
+      nthread: 1
+    tree_base:
+      engine: "rpart"
+      cost_complexity: 0.01          # [codigo model_specifications]
+      tree_depth: 5
+      min_n: 10
+    rf_pca:                          # identico a rf_base; se usaba solo con Full_Microbiome
+      engine: "ranger"
+      mtry: 4                        # [codigo model_specifications]
+      trees: 500
+      min_n: 10
+      importance: "impurity"
+      num_threads: 1
 
   microbiome_options: ["ANCOM_Taxa", "Full_Microbiome"]   # [codigo L4058 / L4063]
 

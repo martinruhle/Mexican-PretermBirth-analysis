@@ -36,7 +36,7 @@ knitr::opts_chunk$set(
 
 **Background**: Preterm birth (PTB) affects 10% of pregnancies globally and is a leading cause of neonatal mortality. The vaginal microbiome has emerged as a potential predictor, with recent studies demonstrating area under ROC curves (AUROC) of 0.66-0.91 depending on sample size, population, and gestational age cutoffs. However, validation in Latin American populations remains critically limited, with only two small studies from Peru and Brazil and no published data from Mexican cohorts.
 
-**Methods:** We conducted a rigorous nested cross-validation study in a Mexican pregnancy cohort (n=43 subjects, 110 longitudinal samples, 14 preterm births <37 weeks). We evaluated Random Forest and Elastic Net algorithms using three feature selection strategies: (1) DREAM Challenge-style minimal clinical adjustment (gestational age + maternal age), (2) literature-based comprehensive features (10 evidence-based PTB risk factors), and (3) data-driven univariate screening (top 10 variables with p<0.20, selected independently within each cross-validation fold). Microbiome features included either ANCOM-BC2 differentially abundant taxa or full filtered profiles (59 genera). To prevent data leakage, ANCOM-BC2 analysis was performed independently within each cross-validation fold using only training data, and classification thresholds were optimized on inner validation sets using Youden's Index. Performance was evaluated using 5-fold nested cross-validation at the subject level with stratified sampling to maintain outcome prevalence.
+**Methods:** We conducted a rigorous nested cross-validation study in a Mexican pregnancy cohort (n=43 subjects, 110 longitudinal samples, 14 preterm births <37 weeks). We evaluated Random Forest and Elastic Net algorithms using three feature selection strategies: (1) DREAM Challenge-style minimal clinical adjustment (gestational age + maternal age), (2) literature-based comprehensive features (10 evidence-based PTB risk factors), and (3) data-driven univariate screening (top 10 variables with p<0.30, selected independently within each cross-validation fold). Microbiome features included either ANCOM-BC2 differentially abundant taxa or full filtered profiles (59 genera). To prevent data leakage, ANCOM-BC2 analysis was performed independently within each cross-validation fold using only training data, and classification thresholds were optimized on inner validation sets using Youden's Index. Performance was evaluated using 5-fold nested cross-validation at the subject level with stratified sampling to maintain outcome prevalence.
 
 **Results:** Twelve model combinations were evaluated. Random Forest with data-driven features and full microbiome achieved highest discrimination (AUROC 0.849 ± 0.130, PRAUC 0.571 ± 0.208) with sensitivity 80.0% and specificity 47.3%. Random Forest with data-driven features and ANCOM-selected taxa showed robust performance (AUROC 0.782 ± 0.142, sensitivity 53.3%, specificity 76.0%), demonstrating that focused feature sets can achieve good discrimination. Elastic Net with literature-based features achieved AUROC 0.767 ± 0.149, though with notable imbalance favoring specificity over sensitivity. These results compare favorably to international benchmarks including the DREAM Challenge (AUROC 0.69-0.74 for late PTB, n=1268), Callahan et al. 2017 (AUROC 0.66, n=135), and Park et al. 2022 (AUROC 0.84, n=150), though direct comparison requires caution given differences in sample size, population composition, and PTB definitions. All models showed considerable performance variability across folds (SD 0.13-0.25), reflecting the limited sample size and class imbalance inherent to this exploratory study.
 
@@ -151,10 +151,10 @@ Each clinical variable passing completeness filters was tested for univariate as
 - Binary/categorical variables: Fisher's exact test (appropriate for small cell counts)
 
 **Selection criteria**:
-- Liberal significance threshold (p<0.20): Justified by small sample size (n~34 per training fold) to balance Type I versus Type II error risks. Stricter thresholds (p<0.05) would miss potentially important features due to limited statistical power.
+- Liberal significance threshold (p<0.30): Justified by small sample size (n~34 per training fold) to balance Type I versus Type II error risks. Stricter thresholds (p<0.05) would miss potentially important features due to limited statistical power.
 - Prioritization of continuous variables: When multiple variables met significance threshold, continuous variables were prioritized over categorical/binary versions of the same construct (e.g., pre-pregnancy BMI continuous preferred over BMI categories) to maximize information content and modeling flexibility.
 - Collinearity management: Among significant variables, pairwise correlations were calculated. When two variables showed high correlation (|r|>0.95), the variable with the stronger univariate association (lower p-value) was retained.
-- Top 10 selection: Among non-collinear variables meeting p<0.20, the top 10 by p-value rank were selected. This threshold balances information inclusion with dimensionality control—with only ~34 training subjects per fold, more than 10 features risks overfitting even with regularized models.
+- Top 10 selection: Among non-collinear variables meeting p<0.30, the top 10 by p-value rank were selected. This threshold balances information inclusion with dimensionality control—with only ~34 training subjects per fold, more than 10 features risks overfitting even with regularized models.
 
 **Variable stability analysis** (across all 5 folds):
 The data-driven approach resulted in moderate selection variability across folds, reflecting the small sample size and fold-specific patterns:
@@ -176,7 +176,7 @@ The data-driven approach resulted in moderate selection variability across folds
 - **Additional variables selected in 1-2 folds:**
   - Pre-pregnancy weight, hemoglobin, complication count, gestational age, etc.
 
-This variability is expected and appropriate for exploratory data-driven selection with small samples. The presence of several moderately stable variables (selected in 3-4 folds) suggests genuine associations rather than pure noise, while the absence of universally selected variables (5/5 folds) reflects legitimate fold-to-fold variation in which features achieve p<0.20 given the limited sample size.
+This variability is expected and appropriate for exploratory data-driven selection with small samples. The presence of several moderately stable variables (selected in 3-4 folds) suggests genuine associations rather than pure noise, while the absence of universally selected variables (5/5 folds) reflects legitimate fold-to-fold variation in which features achieve p<0.30 given the limited sample size.
 
 **Critical methodological note**: Variable selection was performed independently within each training fold before any model fitting, ensuring that test data never influenced feature selection. This prevents optimistic bias in performance estimates that would occur if variables were selected using the full dataset.
 
@@ -605,6 +605,7 @@ cat("All packages loaded successfully!\n",
 # ----------------------------------------------------------------------------
 source(here::here("R", "io.R"),            local = TRUE)
 source(here::here("R", "data_contract.R"), local = TRUE)
+source(here::here("R", "models.R"),        local = TRUE)   # Chat 4: build_model_specs()
 
 cfg <- read_config()   # PTB_PROFILE (default = "default")
 
@@ -2066,10 +2067,9 @@ cat(
 
 ```{r approach1_setup}
 # Select minimal clinical variables
-approach1_vars <- c(
-  "sdg_visita",              # Gestational age at visit (temporal)
-  "edad_cronologicamujer"    # Maternal age (demographic risk factor)
-)
+# Chat 4: desde config (approaches.approach1_dream) — ya no hardcodeado.
+# sdg_visita = gestational age at visit (temporal); edad_cronologicamujer = maternal age.
+approach1_vars <- cfg$approaches$approach1_dream
 
 cat(
   "\n",
@@ -2140,37 +2140,21 @@ meta-analyses. Variables are selected based on:
 # ============================================================================
 # STEP 1: Define candidate variables with evidence strength
 # ============================================================================
-
-approach2_candidates <- tribble(
-  ~variable,                   ~evidence_strength, ~source,
-  # CORE DEMOGRAPHIC/TEMPORAL (Always include)
-  "sdg_visita",                "Essential",        "Timing-dependent risk",
-  "edad_cronologicamujer",     "Very Strong",      "U-shaped relationship (Goldenberg 2008)",
-  
-  # ANTHROPOMETRIC (Strong evidence)
-  "imc_pregestacional",        "Very Strong",      "Both extremes (BMI<18.5, >30) increase risk",
-  "peso_pregestacional_kg",    "Strong",           "Related to BMI but independent effect",
-  
-  # OBSTETRIC COMPLICATIONS (Strongest predictors)
-  "comp1tribleed",             "Very Strong",      "OR 2.6 (95% CI: 1.9-3.6)",
-  "oligohidramnios",           "Strong",           "Marker of placental insufficiency",
-  "diabetes_gest",             "Strong",           "OR 1.5 (95% CI: 1.2-1.8)",
-  "comppreeclam",              "Very Strong",      "OR 3.1 (95% CI: 2.4-4.0)",
-  "rpm",                       "Very Strong",      "Direct PTB mechanism",
-  "compvaginf",                "Strong",           "Infection-mediated PTB",
-  
-  # HEMATOLOGICAL (Moderate-Strong evidence)
-  "anemia_visita",             "Strong",           "OR 1.3-1.7 depending on severity",
-  "hemoglobin_alti_adj",       "Moderate",         "Continuous measure preferred",
-  
-  # NUTRITIONAL (Moderate evidence)
-  "folic_ac_correg",           "Moderate",         "Some evidence for protective effect",
-  "dietsuppl3mon",             "Moderate",         "Some evidence for protective effect",
-  
-  # SOCIOECONOMIC (Moderate evidence)
-  "nivel_academico",           "Moderate",         "SES proxy",
-  "maritalstat",               "Moderate",         "Social support proxy",
-  "ses_risk_score",            "Strong",         "Socioeconomic risk proxy"
+# Chat 4: el tribble se reconstruye 100% desde config (approaches.approach2_literature).
+# core_vars + candidates, cada uno {evidence, source}, EN EL ORDEN del config (load-bearing:
+# rompe empates en head(target_n) del STEP 4). Copia verbatim del tribble original; la
+# LOGICA de filtrado/ranking abajo NO cambia — solo los insumos salen de config.
+a2_cfg <- cfg$approaches$approach2_literature
+a2_entries_to_rows <- function(entries) {
+  tibble(
+    variable          = names(entries),
+    evidence_strength = unname(vapply(entries, function(e) e$evidence, character(1))),
+    source            = unname(vapply(entries, function(e) e$source,   character(1)))
+  )
+}
+approach2_candidates <- bind_rows(
+  a2_entries_to_rows(a2_cfg$core_vars),   # sdg_visita, edad_cronologicamujer (siempre presentes)
+  a2_entries_to_rows(a2_cfg$candidates)   # 15 candidatos de literatura, en orden de config
 )
 
 # Extract variable names
@@ -2195,9 +2179,9 @@ completeness_approach2 <- calculate_completeness(
   approach2_candidate_vars
 )
 
-# Filter to variables with ≥80% subject completeness
+# Filter to variables with ≥ completeness_min subject completeness (config; 0.80 -> 80%)
 valid_vars_approach2 <- completeness_approach2 %>%
-  filter(pct_subjects_complete >= 80) %>%
+  filter(pct_subjects_complete >= a2_cfg$rules$completeness_min * 100) %>%
   pull(variable)
 
 cat(sprintf("After completeness filter: %d variables\n\n", 
@@ -2210,7 +2194,7 @@ cat(sprintf("After completeness filter: %d variables\n\n",
 collinear_pairs_approach2 <- detect_collinear_vars(
   clinical_engineered,
   valid_vars_approach2,
-  threshold = 0.95
+  threshold = a2_cfg$rules$collinearity_cutoff   # config (0.95)
 )
 
 if(nrow(collinear_pairs_approach2) > 0) {
@@ -2254,12 +2238,12 @@ if(nrow(collinear_pairs_approach2) > 0) {
 # STEP 4: Select TOP 10 by evidence strength and priority
 # ============================================================================
 
-# Ensure core variables are included
-core_vars <- c("sdg_visita", "edad_cronologicamujer")
+# Ensure core variables are included (from config; se agregan por nombre)
+core_vars <- names(a2_cfg$core_vars)
 core_vars_present <- intersect(core_vars, valid_vars_approach2)
 
-# Select remaining variables
-remaining_slots <- 10 - length(core_vars_present)
+# Select remaining variables up to target_n (config; 10)
+remaining_slots <- a2_cfg$rules$target_n - length(core_vars_present)
 
 other_vars <- setdiff(valid_vars_approach2, core_vars_present)
 
@@ -2375,9 +2359,10 @@ While literature-based approaches leverage global evidence, they may miss popula
 4. The reported performance metrics are honest estimates free from selection bias
 
 **Methodology Parameters:**
-- Univariate screening threshold: p < 0.20 (liberal for small n, hypothesis-generating)
-- Maximum features: 12 (to prevent overfitting)
-- Mandatory inclusions: sdg_visita, edad_cronologicamujer, imc_pregestacional
+- Univariate screening threshold: p < 0.30 (liberal for small n, hypothesis-generating)
+- Candidate cap before collinearity removal: top 15 by p-value
+- Maximum features: 10 (to prevent overfitting)
+- No mandatory inclusions: every variable competes on its per-fold univariate p-value
 
 **Implementation:** Variable selection is performed within the `train_with_nested_cv()` function for each outer fold. See "Helper Functions for Nested Cross-Validation" section for details.
 
@@ -2727,97 +2712,23 @@ cat(
 **Hyperparameter Selection**: Based on literature recommendations for high-dimensional, small-sample settings.
 
 ```{r model_specifications}
-# Model specifications with FIXED hyperparameters
-models_spec <- list(
-  
-  # ========================================================================
-  # ELASTIC NET (glmnet_base)
-  # ========================================================================
-  # L1+L2 regularization for feature selection and shrinkage
-  # penalty = 0.01: Moderate regularization (prevents overfitting with small n)
-  # mixture = 0.5: Equal blend of L1 (lasso) and L2 (ridge)
-  
-  glmnet_base = logistic_reg(
-    penalty = 0.01,
-    mixture = 0.5
-  ) %>% 
-    set_engine("glmnet") %>%
-    set_mode("classification"),
-  
-  # ========================================================================
-  # RANDOM FOREST (rf_base)
-  # ========================================================================
-  # Bootstrap aggregating of decision trees
-  # mtry = 4: sqrt of typical feature count (~16)
-  # trees = 500: Sufficient for stable OOB estimates
-  # min_n = 10: ~23% of training subjects, prevents overfitting
-  
-  rf_base = rand_forest(
-    mtry = 4,
-    trees = 500,
-    min_n = 10
-  ) %>% 
-    set_mode("classification") %>%
-    set_engine("ranger", importance = "impurity", num.threads = 1),
-  
-  # ========================================================================
-  # XGBOOST (xgb_base)
-  # ========================================================================
-  # Gradient boosting with strong regularization for small n
-  # trees = 100: Limited boosting rounds to prevent overfitting
-  # tree_depth = 3: Shallow trees
-  # learn_rate = 0.05: Moderate learning rate
-  # min_n = 8: Minimum samples per leaf
-  
-  xgb_base = boost_tree(
-    trees = 100,
-    tree_depth = 3,
-    learn_rate = 0.05,
-    min_n = 8
-  ) %>%
-    set_mode("classification") %>%
-    set_engine("xgboost", nthread = 1),
-  
-  # ========================================================================
-  # DECISION TREE (tree_base)
-  # ========================================================================
-  # Single tree for maximum interpretability
-  # cost_complexity = 0.01: Pruning parameter
-  # tree_depth = 5: Limit depth to prevent overfitting
-  # min_n = 10: Minimum samples per node
-  
-  tree_base = decision_tree(
-    cost_complexity = 0.01,
-    tree_depth = 5,
-    min_n = 10
-  ) %>%
-    set_engine("rpart") %>%
-    set_mode("classification"),
-  
-  # ========================================================================
-  # RANDOM FOREST + PCA (rf_pca)
-  # ========================================================================
-  # RF with PCA dimensionality reduction on microbiome features
-  # Only used with full microbiome (Option B)
-  # Same RF parameters as rf_base
-  
-  rf_pca = rand_forest(
-    mtry = 4,
-    trees = 500,
-    min_n = 10
-  ) %>%
-    set_mode("classification") %>%
-    set_engine("ranger", importance = "impurity", num.threads = 1)
-)
+# Model specifications with FIXED hyperparameters.
+# Chat 4: las specs de los modelos ACTIVOS se construyen desde config$models
+# (rf_base = ranger, glmnet_base = glmnet) via build_model_specs() en R/models.R —
+# ya no hardcodeadas. Los 3 specs desactivados (xgb_base, tree_base, rf_pca) viven
+# ahora en config$models_future (reservados para dataset ampliado; ver roadmap en
+# CLAUDE.md). build_model_specs() IGNORA models_future -> se mantienen las 12
+# combinaciones (2 modelos x 3 approaches x 2 microbioma).
+models_spec <- build_model_specs(cfg)
 
 cat(
-  "Models configured: ", length(models_spec), "\n\n",
+  "Models configured (activos, desde config$models): ", length(models_spec), "\n\n",
   paste0("✓ ", names(models_spec), collapse = "\n"), "\n\n",
   "Hyperparameters: FIXED (no tuning)\n",
   "Rationale: Optimized for small sample size (n=43 subjects)\n",
   "Trade-off: ~5-10% performance loss vs. full tuning, but 50x faster\n\n",
-  "Note: rf_pca only trained with full microbiome (Option B)\n",
-  "      Not meaningful with only 10 ANCOM taxa\n"
+  "Reservados (config$models_future, NO activos): xgb_base, tree_base, rf_pca\n",
+  "  -> reactivar = mover a config$models + revalidar convergencia (ver CLAUDE.md)\n"
 )
 ```
 # NESTED CROSS-VALIDATION (MAIN ANALYSIS)
@@ -2842,11 +2753,12 @@ combinations (2 algorithms × 3 approaches × 2 microbiome options).
 # ============================================================================
 # STEP 1: Extract individual model specifications from models_spec list
 # ========================================================================
+# Chat 4: solo los modelos activos (config$models). Los specs xgb_base / tree_base /
+# rf_pca ya NO se extraen: estan desactivados en config$models_future (ver CLAUDE.md).
+# El orquestador (run_nested_cv) itera directamente sobre models_spec (config-driven),
+# de modo que "activar" un modelo = moverlo a config$models sin tocar este chunk.
 rf_spec <- models_spec$rf_base
 glmnet_spec <- models_spec$glmnet_base
-xgb_spec <- models_spec$xgb_base
-tree_spec <- models_spec$tree_base
-rf_pca_spec <- models_spec$rf_pca
 
 # ========================================================================
 # STEP 2: Prepare clinical data (currently no train/test split exists)
@@ -3130,10 +3042,13 @@ cat("╔════════════════════════
 # DEFINE MODEL CONFIGURATIONS
 # ============================================================================
 
-models_to_run <- list(
-  list(name = "rf_base", spec = rf_spec, pca = FALSE),
-  list(name = "glmnet_base", spec = glmnet_spec, pca = FALSE)
-)
+# Chat 4: modelos activos desde config$models (via models_spec = build_model_specs(cfg)).
+# Iterar sobre names(models_spec) preserva el orden del config y hace que "activar" un
+# modelo futuro = moverlo a config$models (ver roadmap CLAUDE.md), sin tocar este chunk.
+# Ningun modelo activo usa PCA (rf_pca esta en models_future) -> pca = FALSE.
+models_to_run <- lapply(names(models_spec), function(nm) {
+  list(name = nm, spec = models_spec[[nm]], pca = FALSE)
+})
 
 # ============================================================================
 # DEFINE APPROACH CONFIGURATIONS
@@ -3161,23 +3076,20 @@ approaches_config <- list(
 # NOTE: For ANCOM_Taxa, taxa are selected WITHIN each fold
 #       We pass full data here, but it will be filtered per fold
 
-microbiome_config <- list(
+# Chat 4: nombres desde config$microbiome_options. use_ancom = TRUE solo para "ANCOM_Taxa"
+# (los taxa se seleccionan por fold); "Full_Microbiome" usa todos los taxa tal cual.
+microbiome_config <- lapply(cfg$microbiome_options, function(nm) {
   list(
-    name = "ANCOM_Taxa",
-    data = micro_genus_full,  # Base data (taxa selected per fold)
-    use_ancom = TRUE          # Flag to trigger ANCOM analysis
-  ),
-  list(
-    name = "Full_Microbiome",
-    data = micro_genus_full,
-    use_ancom = FALSE         # Use all taxa as-is
+    name = nm,
+    data = micro_genus_full,               # Base data (taxa selected per fold if ANCOM)
+    use_ancom = identical(nm, "ANCOM_Taxa") # Flag to trigger ANCOM analysis
   )
-)
+})
 
 cat(
   "✓ Models configured: ", paste(sapply(models_to_run, `[[`, "name"), collapse = ", "), "\n\n",
   "✓ Approaches configured: ", paste(sapply(approaches_config, `[[`, "name"), collapse = ", "), "\n\n",
-  "✓ Microbiome options: ", "2", "\n\n",
+  "✓ Microbiome options: ", length(microbiome_config), "\n\n",
   sep = ""
 )
 
@@ -3210,7 +3122,7 @@ cv_results_all <- list()
 result_idx <- 1
 successful_models <- 0
 failed_models <- 0
-total_combinations <- length(models_to_run) * length(approaches_config) * 2
+total_combinations <- length(models_to_run) * length(approaches_config) * length(microbiome_config)
 
 start_time <- Sys.time()
 
@@ -3557,7 +3469,7 @@ The absence of variables selected in all 5 folds reflects the expected behavior 
    - Work outside home may capture socioeconomic or stress-related pathways
 
 2. **Fold-specific selection** (1-2 folds) expected due to:
-   - Statistical power limitations (with p<0.20 threshold, genuine associations may miss significance in some folds)
+   - Statistical power limitations (with p<0.30 threshold, genuine associations may miss significance in some folds)
    - Heterogeneity in PTB cases across folds (different folds may contain cases driven by different etiologies)
    - Correlation structure changes when subsets are selected
 
