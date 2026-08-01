@@ -1325,7 +1325,12 @@ cat(sprintf("PC1 + PC2 + PC3 explain: %.2f%% of total variance\n\n",
 
 # Extract PC scores (sample coordinates)
 pca_scores <- as.data.frame(pca_result$x[, 1:5])  # Keep first 5 PCs
-pca_scores$index <- as.integer(rownames(pca_scores))
+# Chat 6 (B): reconstruir el index desde micro_clr$index (mismas filas, mismo ORDEN
+# que clr_for_pca -> pca_result$x) preservando su TIPO original. El viejo
+# as.integer(rownames(pca_scores)) asumía index numérico y devolvía NA con IDs
+# alfanuméricos (p.ej. "S01_V1") de otro laboratorio -> rompía el left_join por
+# "index". Es un no-op con IDs enteros (datos reales) -> figuras byte-idénticas.
+pca_scores$index <- micro_clr$index
 
 # Merge with metadata
 pca_data <- pca_scores %>%

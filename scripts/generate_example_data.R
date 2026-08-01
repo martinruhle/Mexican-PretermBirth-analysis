@@ -65,9 +65,13 @@ stopifnot("Escherichia-Shigella" %in% taxa,
 # 1. ESTRUCTURA DE LA COHORTE  (sujetos, muestras, outcome, trimestres)
 # =============================================================================
 n_subj <- 42L
-# id (sujeto) e index (muestra) son ENTEROS, igual que en los datos reales: el .Rmd
-# asume index numerico (chunk figure2_pca_calculation: as.integer(rownames(...))).
-subj_id <- seq_len(n_subj)            # 1..42
+# id (sujeto) e index (muestra) son ALFANUMERICOS (id "S01", index "S01_V1"): como los
+# identificadores que tendria otro laboratorio. Chat 6 (B) arreglo el supuesto de
+# index-entero en figure2_pca_calculation (el viejo as.integer(rownames(...))), asi que el
+# ejemplo ahora EJERCITA el camino de IDs no numericos -> test de regresion permanente de
+# esa reusabilidad. (Solo cambian las etiquetas id/index; el set.seed y las llamadas que
+# consumen RNG no cambian, asi que es la MISMA cohorte sintetica, re-etiquetada.)
+subj_id <- sprintf("S%02d", seq_len(n_subj))   # "S01".."S42"
 
 # ~33% preterm a nivel sujeto (14/42). Ambas clases presentes; suficientes
 # preterm para que los splits estratificados 5-fold + inner 70/30 tengan ambas
@@ -108,13 +112,13 @@ samples <- do.call(rbind, lapply(seq_len(n_subj), function(k) {
   data.frame(
     id           = subj_id[k],
     visita       = seq_len(nv),
+    index        = paste0(subj_id[k], "_V", seq_len(nv)),   # "S01_V1" (unico por muestra)
     sdg_visita   = round(gas, 1),
     stringsAsFactors = FALSE
   )
 }))
 rownames(samples) <- NULL
 n_samples <- nrow(samples)
-samples$index <- seq_len(n_samples)          # index entero unico por muestra (1..n)
 
 # si = posicion del sujeto de cada muestra en los vectores subject-level (1..n_subj).
 # Todas las expansiones sujeto->muestra usan samples-de-sujeto via si (sin ambiguedad
