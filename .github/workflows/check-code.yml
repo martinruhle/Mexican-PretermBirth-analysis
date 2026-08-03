@@ -66,13 +66,12 @@ jobs:
             # Point the CRAN repo at a DATED Posit Package Manager Linux-binary
             # snapshot (2026-01-10) instead of cran.rstudio.com source. Why dated,
             # not "latest": renv restores EXACT pinned versions, and the lock pins
-            # clock 0.7.3, which was superseded by 0.7.4 on 2026-01-13 (so "latest"
-            # has 0.7.4 and renv would source-build 0.7.3). clock 0.7.3 declares
-            # LinkingTo: tzdb (>= 0.5.0) while the lock pins tzdb 0.4.0, so a SOURCE
-            # build of clock FAILS. The 2026-01-10 snapshot serves clock 0.7.3 as a
-            # prebuilt BINARY (LinkingTo not re-checked for binaries; runtime is
-            # fine, validated on these versions) while still carrying every pinned
-            # version. tzdb 0.4.0 (archived by then) source-builds fine. NB: repos
+            # clock 0.7.3, superseded by 0.7.4 on 2026-01-13 (so "latest" has 0.7.4
+            # and renv would source-build 0.7.3). The 2026-01-10 snapshot serves
+            # clock 0.7.3 -- and every other pinned version current then -- as
+            # prebuilt BINARIES, so nothing heavy compiles from CRAN. clock 0.7.3
+            # requires tzdb (>= 0.5.0); the lock pins tzdb 0.5.0 (bumped from 0.4.0,
+            # proven result-neutral) so the pair loads cleanly on Linux. NB: repos
             # live under lockfile$R$Repositories (a named list), NOT $Repositories.
             ppm <- "https://packagemanager.posit.co/cran/__linux__/noble/2026-01-10"
             lf <- renv::lockfile_read("renv.lock")
