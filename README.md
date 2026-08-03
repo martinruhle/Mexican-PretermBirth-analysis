@@ -1,6 +1,6 @@
 # Machine Learning Models for Preterm Birth Prediction Using Vaginal Microbiome Profiles in a Mexican Cohort
 
-[![R Code Verification](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml/badge.svg)](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml)
+[![R-CI](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml/badge.svg)](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Status:** Manuscript submitted

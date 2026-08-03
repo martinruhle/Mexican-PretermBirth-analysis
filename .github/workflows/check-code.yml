@@ -1,28 +1,103 @@
-name: R Code Verification
+name: R-CI
+
+# Reproducible CI for the ptbpredict research compendium:
+#   1. restore the exact package set from renv.lock (R 4.4.2, Bioconductor 3.20)
+#   2. install the package
+#   3. run the FULL testthat suite, INCLUDING the slow end-to-end no-leakage
+#      permutation test (#8) — gated on PTB_RUN_SLOW_TESTS, set here on purpose
+#   4. best-effort smoke-run of the pipeline over data/example/ (non-blocking)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [refactor/compendium, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    
+  test:
+    runs-on: ubuntu-24.04   # pinned: the P3M binary URL below is codename-specific (noble)
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      RENV_PATHS_ROOT: ~/.cache/R/renv
+      # CRITICAL, NON-NEGOTIABLE: activates the no-leakage permutation test (#8,
+      # tests/testthat/test-leakage-permutation.R). Without it that test SKIPS and
+      # the project's core no-leakage guarantee goes dormant (green by omission).
+      PTB_RUN_SLOW_TESTS: '1'
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Verify repository structure
+
+      - name: Set up R 4.4.2
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.4.2'
+          use-public-rspm: true
+
+      - name: Set up pandoc (for the example smoke-run render)
+        uses: r-lib/actions/setup-pandoc@v2
+
+      - name: Install system dependencies (Bioconductor source builds)
         run: |
-          echo "Verifying repository structure..."
-          test -f README.md || exit 1
-          test -f LICENSE || exit 1
-          test -d code || exit 1
-          test -d data || exit 1
-          echo "✓ All required files present"
-      
-      - name: Summary
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglpk-dev libxml2-dev zlib1g-dev libgsl-dev \
+            libcurl4-openssl-dev libssl-dev libudunits2-dev
+
+      - name: Cache renv library
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.RENV_PATHS_ROOT }}
+          key: renv-noble-R4.4.2-${{ hashFiles('renv.lock') }}
+          restore-keys: |
+            renv-noble-R4.4.2-
+
+      - name: Restore packages (renv)
         run: |
-          echo "✓ Repository verification complete"
+          Rscript -e '
+            # renv is bootstrapped by the project .Rprofile (renv/activate.R).
+            # Point ONLY the CRAN repo at Posit Package Manager Linux binaries so
+            # CRAN packages install prebuilt. This is required for `clock`, which
+            # declares LinkingTo: tzdb (>= 0.5.0) while the lock pins tzdb 0.4.0 —
+            # a SOURCE build of clock would fail that check, but the P3M binary
+            # sidesteps it (runtime is fine; validated on these exact versions).
+            # Bioconductor repos are left untouched (built from source; the system
+            # deps above cover them).
+            ppm <- "https://packagemanager.posit.co/cran/__linux__/noble/latest"
+            lf <- renv::lockfile_read("renv.lock")
+            lf$Repositories <- lapply(lf$Repositories, function(r) {
+              if (identical(r$Name, "CRAN")) r$URL <- ppm
+              r
+            })
+            renv::lockfile_write(lf, "renv.lock")
+            renv::restore(prompt = FALSE)
+          '
+
+      - name: Install ptbpredict
+        run: |
+          RENV_LIB=$(Rscript -e 'cat(renv::paths$library())')
+          R CMD INSTALL --no-multiarch --with-keep.source --library="$RENV_LIB" .
+
+      - name: Run test suite (includes no-leakage permutation test #8)
+        run: |
+          Rscript -e 'testthat::test_dir("tests/testthat", stop_on_failure = TRUE)'
+
+      - name: Smoke-run example pipeline (non-blocking)
+        continue-on-error: true
+        env:
+          PTB_PROFILE: example
+        run: |
+          Rscript -e '
+            tryCatch(
+              rmarkdown::render("analysis/integrated_preterm_prediction_workflow.Rmd",
+                                quiet = TRUE),
+              error = function(e)
+                message("example smoke-run non-fatal (not a CI gate): ",
+                        conditionMessage(e))
+            )
+          '
