@@ -61,29 +61,21 @@ jobs:
 
       - name: Restore packages (renv)
         run: |
-          Rscript -e '
-            # renv is bootstrapped by the project .Rprofile (renv/activate.R).
-            # Point the CRAN repo at a DATED Posit Package Manager Linux-binary
-            # snapshot (2026-01-10) instead of cran.rstudio.com source. Why dated,
-            # not "latest": renv restores EXACT pinned versions, and the lock pins
-            # clock 0.7.3, superseded by 0.7.4 on 2026-01-13 (so "latest" has 0.7.4
-            # and renv would source-build 0.7.3). The 2026-01-10 snapshot serves
-            # clock 0.7.3 -- and every other pinned version current then -- as
-            # prebuilt BINARIES, so nothing heavy compiles from CRAN. clock 0.7.3
-            # requires tzdb (>= 0.5.0); the lock pins tzdb 0.5.0 (bumped from 0.4.0,
-            # proven result-neutral) so the pair loads cleanly on Linux. NB: repos
-            # live under lockfile$R$Repositories (a named list), NOT $Repositories.
-            ppm <- "https://packagemanager.posit.co/cran/__linux__/noble/2026-01-10"
-            lf <- renv::lockfile_read("renv.lock")
-            lf$R$Repositories[["CRAN"]] <- ppm
-            renv::lockfile_write(lf, "renv.lock")
-            renv::restore(prompt = FALSE)
-          '
+          # renv is bootstrapped by the project .Rprofile (renv/activate.R).
+          # setup-r (use-public-rspm) sets RENV_CONFIG_REPOS_OVERRIDE to the Posit
+          # Package Manager noble binary repo, so CRAN packages install prebuilt.
+          # The lock pins clock 0.7.3 (superseded by 0.7.4), so clock is built from
+          # source -- which now succeeds and LOADS because the lock pins tzdb 0.5.0
+          # (bumped from 0.4.0, proven result-neutral), satisfying clock's
+          # LinkingTo: tzdb (>= 0.5.0). Bioconductor is built from source (the
+          # system deps above cover it).
+          Rscript -e 'renv::restore(prompt = FALSE)'
 
       - name: Install ptbpredict
         run: |
-          RENV_LIB=$(Rscript -e 'cat(renv::paths$library())')
-          R CMD INSTALL --no-multiarch --with-keep.source --library="$RENV_LIB" .
+          # Install the local package into the (renv-active) project library.
+          # renv::install(".") avoids capturing renv's stdout into a path.
+          Rscript -e 'renv::install(".", prompt = FALSE)'
 
       - name: Run test suite (includes no-leakage permutation test #8)
         run: |
