@@ -76,10 +76,10 @@ Mexican-PretermBirth-analysis/
 ├── R/                                 # Pure functions used by the pipeline (roxygen-documented)
 │
 ├── analysis/
-│   ├── integrated_preterm_prediction_workflow.Rmd    # Main analysis (R Markdown)
-│   └── permutation_test_nested_cv.Rmd                # Permutation test on the fitted pipeline
+│   └── integrated_preterm_prediction_workflow.Rmd    # Main analysis (R Markdown)
 │
 ├── scripts/
+│   ├── permutation_test.R                            # Permutation test (single implementation)
 │   └── sensitivity_nonindependence_weight.R          # Sensitivity analysis (sample weighting)
 │
 ├── config/

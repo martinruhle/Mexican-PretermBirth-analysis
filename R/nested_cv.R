@@ -95,9 +95,13 @@ detect_prob_col <- function(df, pos_class = "1") {
 #'   recipe. Default `FALSE`.
 #'
 #' @return A named list with `model_name`, `approach`, `microbiome`,
-#'   `fold_results`, `summary`, and (when available) `roc_curves`, `pr_curves`,
-#'   `selected_variables`, `selected_taxa` and `final_model`; or `NULL` if no fold
-#'   produced results.
+#'   `fold_results`, `summary`, and (when available) `test_predictions`,
+#'   `roc_curves`, `pr_curves`, `selected_variables`, `selected_taxa` and
+#'   `final_model`; or `NULL` if no fold produced results. `test_predictions` holds
+#'   the subject-level out-of-fold predictions (`fold`, `id`, `pred_prob`,
+#'   `true_class`, `pred_class`) used to build `fold_results`, so downstream code
+#'   can recompute alternative metrics (e.g. a direction-fixed AUROC) without
+#'   re-running the pipeline.
 #' @export
 train_with_nested_cv <- function(model_name, model_spec,
                                   clinical_data_all, microbiome_data_all,
@@ -113,6 +117,13 @@ train_with_nested_cv <- function(model_name, model_spec,
 
   # Store results from each fold
   fold_results <- list()
+
+  # Subject-level out-of-fold test predictions, one entry per fold. ADDITIVE: no
+  # metric computed below reads this; it is only packaged into the returned list
+  # so downstream analyses (e.g. the permutation test) can recompute a
+  # direction-fixed AUROC without re-running the pipeline. Explicit local list —
+  # deliberately NOT the exists()/<- accumulator pattern used elsewhere here.
+  test_predictions_by_fold <- list()
 
   # For Approach 3, we'll also store which variables were selected in each fold
   if(approach_name == "Approach3_DataDriven") {
@@ -534,6 +545,18 @@ train_with_nested_cv <- function(model_name, model_spec,
         )
       )
 
+    # Degenerate outer-test fold: a single outcome class present -> AUROC/sens/spec
+    # are undefined and pROC aborts with "No case observation". Skip the fold, in
+    # line with the other guards above, instead of killing the whole model run.
+    # UNREACHABLE with the real labels (outer folds are stratified on `preterm`);
+    # it only arises under subject-level label permutation, where stratification
+    # no longer holds. Leaves every non-degenerate fold untouched.
+    if(length(unique(as.character(test_preds_subject$true_class))) < 2) {
+      cat("  SKIP: outer-test fold has a single outcome class - metrics undefined\n")
+      fold_results[[fold_idx]] <- NULL
+      next
+    }
+
     # Calculate metrics
     acc <- accuracy(test_preds_subject, truth = true_class, estimate = pred_class)$.estimate
     sens <- sens(test_preds_subject, truth = true_class, estimate = pred_class,
@@ -571,6 +594,12 @@ train_with_nested_cv <- function(model_name, model_spec,
       Specificity = spec,
       Youden = sens + spec - 1
     )
+
+    # ADDITIVE: keep this fold's subject-level test predictions (see the list
+    # initialisation above). Stored AFTER the metrics so it can never influence
+    # them; a fold skipped by any guard above contributes nothing here either.
+    test_predictions_by_fold[[fold_idx]] <- test_preds_subject %>%
+      mutate(fold = fold_idx)
 
         # ========================================================================
     # STORE ROC AND PR CURVES
@@ -830,6 +859,14 @@ train_with_nested_cv <- function(model_name, model_spec,
     fold_results = fold_results_df,
     summary = summary_results
   )
+
+  # Add subject-level out-of-fold test predictions (ADDITIVE; see above)
+  if(length(test_predictions_by_fold) > 0) {
+    result_list$test_predictions <- bind_rows(test_predictions_by_fold)
+    cat(sprintf("  ✓ Test predictions: %d folds, %d subject-level rows\n",
+                sum(!vapply(test_predictions_by_fold, is.null, logical(1))),
+                nrow(result_list$test_predictions)))
+  }
 
   # Add ROC curves
   if(exists("roc_curves_storage") && length(roc_curves_storage) > 0) {
