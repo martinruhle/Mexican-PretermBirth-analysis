@@ -15,9 +15,10 @@ were found and corrected. Some corrections change the reported numbers.** The pu
 not being amended; this repository is the authoritative record of the corrected analysis, and this
 document is the changelog between the two.
 
-If you are reading the article and want the current numbers, use the tables in this document — not
-the figures in the published PDF, and not the results table currently shown in `README.md`
-(that table predates these corrections and is scheduled for reconciliation).
+If you are reading the article and want the current numbers, use the tables in this document, or the
+reconciled results table in [`README.md`](../README.md#results-current) — not the figures in the
+published PDF, and not the archived report in
+[`results/published_version/`](../results/published_version/), which predates these corrections.
 
 Nothing here changes the study design, the cohort, the data, or the biological question. The
 corrections are in the analysis code.
@@ -33,12 +34,13 @@ corrections are in the analysis code.
 | **Published** | Random Forest | Approach 3 (data-driven) | Full microbiome | 0.813 |
 | **Corrected** | **Elastic net (glmnet)** | **Approach 3 (data-driven)** | **ANCOM-BC2-selected taxa** | **0.760 ± 0.270** |
 
-*On the published value:* two different figures for the previous best model circulate in this
-repository — **0.813**, used as the reference value in the permutation-test script, and **0.849**,
-shown in the `README.md` results table. The 0.849 figure comes from an older analysis run made
-before a contaminant-filtering step was applied (59 taxa instead of 49) and is obsolete; 0.813 is
-the post-filtering value. Both predate the corrections below. Reconciling the public-facing numbers
-is part of the pending documentation work.
+*On the published value:* two different figures for the previous best model used to circulate in
+this repository — **0.813**, the value the permutation-test script referenced, and **0.849**, which
+appeared in the `README.md` results table and in the archived report now kept under
+`results/published_version/`. The 0.849 figure comes from an older analysis run made before a
+contaminant-filtering step was applied (59 taxa instead of 49) and is obsolete; 0.813 is the
+post-filtering value. Both predate the corrections below. `README.md` has since been reconciled to
+the corrected numbers, and the obsolete render is labelled as superseded.
 
 The previously reported best combination (Random Forest / Approach 3 / full microbiome) now scores
 **0.680** and ranks 6th of 12. This reordering is a direct consequence of correction 2.1 (the CLR
@@ -219,19 +221,24 @@ confirmed across independent runs.
 
 ## 5. Limitations of the updated analysis
 
-- **The p-value is conditional on model selection.** The permuted model is the best of 12
-  combinations evaluated on the same data, so p = 0.019 is optimistic as a test of "this model beats
-  chance", and it is not adjusted for multiplicity. A naive Bonferroni correction (0.019 × 12 ≈ 0.23)
-  would over-correct, because the 12 combinations share subjects, folds and features and are
-  therefore strongly correlated. We report the unadjusted value and state the conditioning rather
-  than substituting a number we cannot justify.
+- **The p-value is conditional on model selection.** The permutation test is a valid test of the
+  null for the specific pipeline configuration it was run on — labels are permuted and the entire
+  nested CV, including per-fold feature selection, is re-run. What it does **not** account for is
+  that this configuration was itself chosen as the best of 12 combinations evaluated on the same
+  43 subjects. **p = 0.019 therefore quantifies "this particular model beats chance", not "the best
+  of 12 models beats chance", and it carries no adjustment for multiplicity.** We report it
+  unadjusted and state the conditioning rather than substituting a corrected number we cannot
+  justify: a naive Bonferroni adjustment (0.019 × 12 ≈ 0.23) would over-correct badly, because the
+  12 combinations are not independent tests — they share the same subjects, the same outer folds
+  and largely the same features, so the effective number of independent comparisons is well below
+  12, and no defensible estimate of it is available at this sample size. The p-value should be read
+  as supporting evidence for the reported model, not as a family-wise significance claim.
 - **Small sample.** 43 subjects, 14 preterm, 110 longitudinal samples. Per-fold AUROC standard
   deviations are large (see 1.2) and the ranking among mid-table combinations should not be
   over-interpreted.
 - **The engine still reports automatic-direction AUROC** for its performance tables. For the winning
   model this is verified to be identical to the fixed-direction value; it has not been audited for
   the other combinations.
-- **`README.md` has not yet been reconciled** with the corrected numbers.
 
 ---
 
@@ -239,12 +246,17 @@ confirmed across independent runs.
 
 | Path | What it is |
 |---|---|
+| `README.md` | Current results, how to run the pipeline, how to use it on other data |
 | `analysis/integrated_preterm_prediction_workflow.Rmd` | Main pipeline (all 12 combinations, figures) |
 | `scripts/permutation_test.R` | Permutation test — the single implementation |
 | `R/` | Reusable engine (CLR, feature selection, thresholds, nested CV) |
 | `config/config.yml`, `config/data_dictionary.csv` | Configuration and data contract |
 | `tests/testthat/` | Test suite, including no-leakage checks |
 | `data/example/` | Synthetic example data |
+| `vignettes/ptbpredict.Rmd` | Narrative walkthrough of a complete run |
+| `CONTRIBUTING.md` | Invariants that must not be broken; how to propose a change |
+| `results/permutation_test/` | Saved permutation-test artefacts (figure, null distribution, per-fold table) |
+| `results/published_version/` | Archived report and figures from before these corrections |
 
 The previous permutation-test implementation (`analysis/permutation_test_nested_cv.Rmd`) was removed
 rather than repaired: it duplicated the analysis engine, and that duplication is precisely how it

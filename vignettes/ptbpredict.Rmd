@@ -1,0 +1,363 @@
+---
+title: "Running the preterm-birth prediction pipeline"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{Running the preterm-birth prediction pipeline}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  # Every chunk in this vignette is shown but NOT executed. A real run of the
+  # pipeline takes ~12 minutes and needs Bioconductor packages plus data on disk;
+  # building the vignette must stay fast and dependency-light. Console output
+  # below is quoted verbatim from an actual run on data/example/.
+  eval     = FALSE
+)
+```
+
+This vignette walks through one complete run of the `ptbpredict` pipeline on the synthetic example
+dataset shipped with the package, then shows how to point it at your own data.
+
+**The code chunks are not evaluated when this vignette is built** — a full run takes about twelve
+minutes. Everything shown is copy-pasteable, and console output is quoted from a real run.
+
+> **If you arrived from the published article**, read
+> [`docs/UPDATE_SINCE_PUBLICATION.md`](https://github.com/martinruhle/Mexican-PretermBirth-analysis/blob/master/docs/UPDATE_SINCE_PUBLICATION.md)
+> first. Several methodological errors were corrected after publication and some reported numbers
+> changed.
+
+## What the pipeline does
+
+For each of 12 combinations — 2 models × 3 clinical variable sets × 2 microbiome inputs — it runs a
+subject-level nested cross-validation and reports out-of-fold performance:
+
+```
+for each of 5 outer folds (subjects, stratified by outcome, seed 123):
+    hold out the OUTER-TEST subjects — untouched until the last line
+
+    on the OUTER-TRAINING subjects:
+        select taxa            (ANCOM-BC2 on counts, adjusting for age + BMI)
+        select clinical vars   (Approach 3 only: univariate screening)
+        split them 70/30       -> inner-train / inner-validation
+
+    on INNER-TRAIN:
+        fit the recipe         (impute, standardise, dummy-code, filter)
+        fit the model          (Random Forest or elastic net)
+
+    on INNER-VALIDATION:
+        choose the classification threshold (Youden)
+
+    on OUTER-TEST:
+        evaluate — AUROC, PRAUC, sensitivity, specificity, balanced accuracy
+```
+
+Note where each step draws its data: **feature selection sees the whole outer-training set, while
+the recipe and the model see only inner-train.** Nothing derived from outer-test enters any
+selection or fitting decision — that is the property the test suite exists to protect.
+
+## Setup
+
+```{r install}
+install.packages("renv")
+renv::restore()          # pinned R 4.4.2 library, incl. Bioconductor
+```
+
+For interactive work, load the engine from the source tree:
+
+```{r load}
+devtools::load_all()
+```
+
+The pipeline calls several analysis packages unqualified, inherited from its R Markdown origins, so
+attach them before calling engine functions directly (the analysis `.Rmd` and the test setup do
+this for you):
+
+```{r attach}
+library(phyloseq); library(ANCOMBC); library(vegan); library(zCompositions)
+library(pROC); library(PRROC)
+library(tidymodels)     # last, so dplyr's verbs win the usual conflicts
+```
+
+## The short version
+
+One command runs everything on the synthetic data:
+
+```{r run-all, engine = "bash"}
+PTB_PROFILE=example Rscript scripts/run_baseline.R
+```
+
+That renders the analysis document and writes three files to `analysis/_output/`:
+
+| File | Content |
+|---|---|
+| `baseline_postfix.html` | Full report: cohort figures, PCA, feature-selection tables, the 12-combination performance table, ROC/PR curves, feature importance, session info |
+| `baseline_postfix_metrics.csv` | The 12 combinations as numbers (mean and SD per metric) |
+| `baseline_postfix_cv_summary.rds` | The same summaries as an R object |
+
+`PTB_RUN_TAG=myrun` changes the prefix. The rest of this vignette unpacks what happens inside.
+
+## Step 1 — configuration
+
+Nothing is hardcoded: paths, column names, variable-set definitions, preprocessing parameters, CV
+settings and model hyperparameters all come from `config/config.yml`, selected by profile.
+
+```{r config}
+cfg <- read_config("example")   # or read_config() -> $PTB_PROFILE, default "default"
+
+cfg$data$matrix_path
+#> [1] "data/example/example_genus_rel.csv"
+cfg$cv$outer_folds
+#> [1] 5
+cfg$cv$inner_train_prop
+#> [1] 0.7
+names(cfg$models)
+#> [1] "rf_base"     "glmnet_base"
+```
+
+The `example:` profile redefines only the `data:` block and inherits everything else from
+`default:`, so the synthetic run uses exactly the same methodology as the real one.
+
+## Step 2 — which columns are microbiome?
+
+By an explicit list in `config/data_dictionary.csv`, never by column position and never by a name
+pattern:
+
+```{r dictionary}
+taxa <- microbiome_columns(cfg)
+length(taxa)
+#> [1] 97
+head(taxa, 3)
+#> [1] "Lactobacillus" "Gardnerella"   "Hydrotalea"
+```
+
+Names are read with `check.names = FALSE`, so hyphens and taxonomic prefixes survive intact —
+`Escherichia-Shigella` used to be silently mangled into `Escherichia.Shigella` and then dropped
+from differential-abundance analysis.
+
+## Step 3 — load and validate
+
+```{r load-data}
+d <- load_dataset(cfg)          # wide matrix + longitudinal metadata
+dim(d$matrix)
+#> [1] 113 167
+
+validate_input_data(d$matrix, d$metadata, cfg)
+#> ✓ Contrato de datos validado: 97 taxa, 113 muestras, 42 sujetos
+#>   (sample_id/subject_id casan con la metadata).
+```
+
+`validate_input_data()` is the gate to run before anything else. It checks that required columns
+exist, the outcome is binary, every dictionary taxon is present in the matrix, taxa lie in
+`[0, 1]`, and the sample and subject keys agree between matrix and metadata. It fails with a
+specific message rather than letting a malformed dataset produce plausible-looking numbers.
+
+Split the matrix into its two domains — again by name:
+
+```{r split}
+dom <- split_domains(d$matrix, cfg)
+names(dom)
+#> [1] "microbiome" "clinical"
+```
+
+## Step 4 — filtering and the compositional transform
+
+The analysis document applies two filters to the microbiome, in this order:
+
+1. **Prevalence** — keep genera present in ≥5% of samples (`preprocessing$prevalence_filter`).
+2. **Contaminants** — drop the genera listed in `preprocessing$contaminant_genera`, common reagent
+   contaminants in low-biomass samples.
+
+On the real cohort that is 97 → 59 → 49 genera. The surviving list is what the ANCOM-BC2 branch
+searches and what "full microbiome" means.
+
+Relative abundances are compositional and must be transformed before entering a linear model. This
+happens in two steps, deliberately separated:
+
+```{r clr}
+# 1. Learn per-taxon zero-replacement levels ONCE, over the full microbiome.
+#    Outcome-blind by construction: the labels are not an argument.
+zero_levels <- fit_clr_zerorepl(micro_genus_full, taxa_cols)
+
+# 2. Apply zero replacement + per-sample CLR wherever it is needed. The levels are
+#    passed in, never read from a global.
+inner_train <- apply_clr_transform(inner_train, taxa_cols, zero_levels = zero_levels)
+inner_val   <- apply_clr_transform(inner_val,   taxa_cols, zero_levels = zero_levels)
+outer_test  <- apply_clr_transform(outer_test,  taxa_cols, zero_levels = zero_levels)
+```
+
+The CLR is **per sample**: each row is centred by the geometric mean of its own taxa, so every
+transformed row sums to zero. Being row-local, it cannot move information between training and test
+data — which is why applying it to all three splits is safe.
+
+This is the step that was wrong in the published analysis: a pseudocount of 0.65, appropriate for
+raw counts, was added to relative abundances, and after the downstream standardisation step the
+whole thing collapsed to a per-feature rescaling. No compositional transform was ever applied. See
+`docs/UPDATE_SINCE_PUBLICATION.md` §2.1.
+
+## Step 5 — the nested CV loop
+
+Folds are built over **subjects**, not samples, so a subject's longitudinal samples cannot be split
+across a train/test boundary:
+
+```{r folds}
+set.seed(cfg$cv$seed)                                  # 123
+cv_folds <- vfold_cv(subject_labels, v = cfg$cv$outer_folds, strata = preterm)
+```
+
+Model specifications come from the config:
+
+```{r specs}
+models_spec <- build_model_specs(cfg)
+names(models_spec)
+#> [1] "rf_base"     "glmnet_base"
+```
+
+`rf_base` is `ranger` with 500 trees, `mtry = 4`, `min_n = 10` and impurity importance;
+`glmnet_base` is `glmnet` with `penalty = 0.01` and `mixture = 0.5`. Hyperparameters are fixed, not
+tuned — with 43 subjects there is no budget for tuning. `build_model_specs()` reads only
+`cfg$models`, so the three specifications parked under `cfg$models_future` (`xgboost`, `rpart`,
+RF-on-PCA) are ignored.
+
+Then one call per combination:
+
+```{r nested-cv}
+result <- train_with_nested_cv(
+  model_name          = "glmnet_base",
+  model_spec          = models_spec$glmnet_base,
+  clinical_data_all   = approach2_clinical_all,
+  microbiome_data_all = micro_genus_full,
+  approach_name       = "Approach2_Literature",
+  microbiome_option   = "ANCOM_Taxa",
+  cv_folds            = cv_folds,
+  clr_zero_levels     = zero_levels,
+  genera_clean        = genera_clean,          # ANCOM_Taxa branch
+  abs_data            = load_abs_matrix(cfg)   # ANCOM_Taxa branch: counts
+)
+
+result$summary$AUROC_mean
+result$fold_results          # one row per outer fold
+result$selected_taxa         # taxa chosen per fold (they legitimately differ)
+result$test_predictions      # subject-level out-of-fold predictions
+```
+
+> **Two caveats when calling the engine directly.** `train_with_nested_cv()` still reads
+> `subject_labels` from the calling environment, and its Approach-3 branch calls six univariate
+> screening helpers that currently live in the analysis `.Rmd` rather than in `R/`. Both are known
+> and flagged in the source. Until they are extracted, the supported way to run Approach 3 is
+> through `analysis/integrated_preterm_prediction_workflow.Rmd` (or
+> `scripts/run_baseline.R`, which renders it). Approaches 1 and 2 need only `subject_labels`.
+
+`result$test_predictions` is worth knowing about: it holds the out-of-fold predicted probabilities
+at subject level, so alternative metrics can be computed from a finished run without re-training
+anything. The permutation test uses exactly this to recompute a direction-fixed AUROC.
+
+## Step 6 — reading the output
+
+The 12-combination table is the pipeline's headline output:
+
+```{r results}
+m <- read.csv("analysis/_output/baseline_postfix_metrics.csv")
+m[order(-m$AUROC_mean), c("Model", "Approach", "Microbiome", "AUROC_mean", "AUROC_sd")]
+```
+
+On the **real cohort** the best combination is elastic net / Approach 3 / ANCOM-BC2 taxa at
+AUROC 0.760 ± 0.270; the full table is in the repository README.
+
+On the **synthetic example data the numbers are meaningless** and are not expected to resemble the
+real ones — different data. The criterion for the example run is only that all 12 combinations and
+every figure complete without error. Treat it as a smoke test of your installation.
+
+## Step 7 — the permutation test
+
+Does the reported discrimination exceed chance? Outcome labels are permuted at the subject level
+and the whole nested CV is re-run, 999 times:
+
+```{r permutation, engine = "bash"}
+# observed value + per-fold supplementary table (~40 s)
+PTB_PERM_MODE=verify Rscript scripts/permutation_test.R
+
+# null distribution: 999 permutations, ~3.6 h on 8 cores
+PTB_PERM_MODE=run PTB_PERM_N=999 PTB_PERM_CORES=8 PTB_PERM_TAG=final999 Rscript scripts/permutation_test.R
+
+# p-value, summary tables and figure from the saved null (seconds)
+PTB_PERM_MODE=report PTB_PERM_TAG=final999 Rscript scripts/permutation_test.R
+```
+
+Result on the real cohort: observed 0.760 against a null of 0.502 ± 0.121, 18 of 998 valid
+permutations reaching the observed value, **p = 0.019**. The artefacts are versioned in
+`results/permutation_test/`, so none of this needs re-running to be checked.
+
+Two details make the null trustworthy, and both were wrong before:
+
+- **The AUROC orientation is fixed** rather than inferred from the data. With an inferred
+  orientation the null distribution centred on 0.68 instead of 0.5 and the test had almost no
+  power — the same data gave p = 0.139.
+- **All three consumers of the outcome are permuted together**: the model's outcome column, the
+  stratification labels, and the metadata ANCOM-BC2 uses to select taxa. Permute fewer, and taxa
+  are still selected with the true labels — a contaminated null.
+
+## Using your own data
+
+Two files to edit, no changes to `R/`.
+
+**1. Add a profile** to `config/config.yml`, redefining the whole `data:` block (profile
+inheritance replaces `data:` wholesale rather than merging key by key):
+
+```yaml
+mylab:
+
+  data:
+    matrix_path:      "data/mylab/genus_rel.csv"      # relative abundances, rows sum to ~1
+    abs_matrix_path:  "data/mylab/genus_counts.csv"   # integer counts, same taxa columns
+    metadata_path:    "data/mylab/metadata_long.csv"
+    participant_path: null
+    data_dictionary:  "config/data_dictionary.csv"
+    microbiome_columns_from: "data_dictionary"
+```
+
+**2. Fill in `config/data_dictionary.csv`** — one row per column of your matrix, with `role` set to
+`microbiome` for taxa and `clinical` for everything else, plus the `subject_id`, `sample_id`,
+`outcome` and `gestational_age` keys. Every `role = microbiome` variable must exist, spelled
+identically, in both the relative-abundance and the count matrix.
+
+Then:
+
+```{r own-data, engine = "bash"}
+PTB_PROFILE=mylab Rscript scripts/run_baseline.R
+```
+
+Validate the contract first — it is much cheaper than debugging a failed run:
+
+```{r own-validate}
+cfg <- read_config("mylab")
+d   <- load_dataset(cfg)
+validate_input_data(d$matrix, d$metadata, cfg)
+```
+
+Note that the default configuration references two clinical variables **by name**:
+`edad_cronologicamujer` (maternal age) and `imc_pregestacional` (pre-pregnancy BMI), used in the
+ANCOM-BC2 confounder formula and in the Approach 1 and 2 variable lists. Provide columns with those
+names, or override the relevant config keys in your profile.
+
+Two known limits, both in exploratory figure code rather than the modelling engine: subject and
+sample ids must be integer-like (the PCA figure coerces its join key with `as.integer()`), and every
+taxon needs at least two samples with a non-zero value (the zero-replacement method cannot estimate
+its hyper-parameter otherwise). Both are described in the repository README.
+
+## Where to go next
+
+| Question | Where |
+|---|---|
+| What changed after publication, and by how much? | `docs/UPDATE_SINCE_PUBLICATION.md` |
+| Current results, run instructions, reusability limits | `README.md` |
+| Invariants, tests, how to propose a change | `CONTRIBUTING.md` |
+| Permutation test artefacts and how to regenerate them | `results/permutation_test/` |
+| Function-level reference | the roxygen blocks in `R/` (`R/io.R`, `R/nested_cv.R`, …) |
+| Getting the restricted cohort data | `docs/DATA_ACCESS.md` |
