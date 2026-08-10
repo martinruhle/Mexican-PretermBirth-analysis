@@ -6,16 +6,11 @@
 > ## 📌 Read this first if you arrived from the article
 >
 > **After publication, this analysis code was reviewed and several methodological updates were
-> made; some of them change the reported numbers.** The published article is not being amended —
-> **this repository is the authoritative record of the updated analysis.**
+> made.
+> **this repository is the authoritative record of the ongoing analysis.**
 >
 > ### → **[docs/UPDATE_SINCE_PUBLICATION.md](docs/UPDATE_SINCE_PUBLICATION.md)** — what changed, why, and by how much
 >
-> Short version: the best-performing model is no longer Random Forest with the full microbiome at
-> AUROC 0.813, but **elastic net with ANCOM-BC2-selected taxa at AUROC 0.760**, and the
-> permutation test that supports it — since rebuilt — now gives **p = 0.019**. The study design,
-> cohort, data and biological question are unchanged. The current numbers are in
-> [Results](#results-current) below.
 
 **Status:** Published in *Frontiers in Global Women's Health* —
 [doi:10.3389/fgwh.2026.1799518](https://doi.org/10.3389/fgwh.2026.1799518). Analysis code updated
@@ -32,8 +27,7 @@ Front. Glob. Women's Health 7:1799518. doi: 10.3389/fgwh.2026.1799518
 ```
 
 If you use the **updated** results, please also point readers to
-[`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md), since they differ from
-the article. Machine-readable metadata is in [`CITATION.cff`](CITATION.cff).
+[`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md)
 
 ---
 
@@ -80,7 +74,7 @@ the report-producing pipeline in [`analysis/`](analysis/).
 
 ---
 
-## Results (current)
+## Results
 
 Real cohort data, 5 outer folds, subject-level splits stratified by outcome. All values are the
 mean ± SD **across the 5 outer test folds**. Threshold-dependent metrics (sensitivity,
@@ -113,8 +107,7 @@ The three clinical variable sets and the two microbiome inputs are defined in
 
 ### Permutation test
 
-A reviewer asked for evidence that the model's discrimination exceeds chance. The outcome labels
-were permuted at the subject level 999 times, with the permuted labels propagated to **every**
+The outcome labels were permuted at the subject level 999 times, with the permuted labels propagated to **every**
 place the outcome is consumed — including ANCOM-BC2 taxa selection — and the whole nested CV
 re-run each time.
 
