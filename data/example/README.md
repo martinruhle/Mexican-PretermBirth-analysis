@@ -9,7 +9,7 @@ end-to-end without access to the real cohort (which lives outside git, in
 They exist so the pipeline is reproducible and reusable: the numbers here are
 **not** meaningful and are **not** expected to reproduce the real-cohort results —
 different data. The only goal is that the 12 model combinations and every figure
-run without error.
+run to completion.
 
 ## Files
 

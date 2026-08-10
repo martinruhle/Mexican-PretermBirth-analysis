@@ -10,18 +10,18 @@ This repository is cited in the Data Availability Statement of:
 > microbiome patterns associated with preterm birth in a Mexican cohort.*
 > Front. Glob. Women's Health 7:1799518. doi: 10.3389/fgwh.2026.1799518
 
-**After the article was published, the analysis code was audited and several methodological errors
-were found and corrected. Some corrections change the reported numbers.** The published article is
-not being amended; this repository is the authoritative record of the corrected analysis, and this
-document is the changelog between the two.
+**After the article was published, the analysis code was reviewed and several methodological updates
+were made. Some of these updates change the reported numbers.** The published article is not being
+amended; this repository is the authoritative record of the updated analysis, and this document is
+the changelog between the two.
 
 If you are reading the article and want the current numbers, use the tables in this document, or the
-reconciled results table in [`README.md`](../README.md#results-current) — not the figures in the
-published PDF, and not the archived report in
-[`results/published_version/`](../results/published_version/), which predates these corrections.
+results table in [`README.md`](../README.md#results-current) — not the figures in the published PDF,
+and not the archived report in
+[`results/published_version/`](../results/published_version/), which predates these updates.
 
-Nothing here changes the study design, the cohort, the data, or the biological question. The
-corrections are in the analysis code.
+Nothing here changes the study design, the cohort, the data, or the biological question. The updates
+are refinements to the analysis code.
 
 ---
 
@@ -32,20 +32,20 @@ corrections are in the analysis code.
 | | Model | Clinical variable set | Microbiome input | AUROC |
 |---|---|---|---|---|
 | **Published** | Random Forest | Approach 3 (data-driven) | Full microbiome | 0.813 |
-| **Corrected** | **Elastic net (glmnet)** | **Approach 3 (data-driven)** | **ANCOM-BC2-selected taxa** | **0.760 ± 0.270** |
+| **Updated** | **Elastic net (glmnet)** | **Approach 3 (data-driven)** | **ANCOM-BC2-selected taxa** | **0.760 ± 0.270** |
 
 *On the published value:* two different figures for the previous best model used to circulate in
 this repository — **0.813**, the value the permutation-test script referenced, and **0.849**, which
 appeared in the `README.md` results table and in the archived report now kept under
 `results/published_version/`. The 0.849 figure comes from an older analysis run made before a
-contaminant-filtering step was applied (59 taxa instead of 49) and is obsolete; 0.813 is the
-post-filtering value. Both predate the corrections below. `README.md` has since been reconciled to
-the corrected numbers, and the obsolete render is labelled as superseded.
+contaminant-filtering step was applied (59 taxa instead of 49) and is superseded; 0.813 is the
+post-filtering value. Both predate the updates below. `README.md` now reports the updated numbers,
+and the earlier render is labelled as superseded.
 
 The previously reported best combination (Random Forest / Approach 3 / full microbiome) now scores
-**0.680** and ranks 6th of 12. This reordering is a direct consequence of correction 2.1 (the CLR
-bug): once the microbiome is actually compositionally transformed, the relative standing of the
-model combinations changes (Spearman ρ ≈ 0.47 against the pre-fix ranking; largest single shift
+**0.680** and ranks 6th of 12. This reordering follows directly from update 2.1 (the CLR
+transformation): once the microbiome is compositionally transformed, the relative standing of the
+model combinations changes (Spearman ρ ≈ 0.47 against the earlier ranking; largest single shift
 ΔAUROC = 0.24).
 
 ### 1.2 Full current results (real cohort data, all 12 combinations)
@@ -72,10 +72,10 @@ Note the wide standard deviations. With 43 subjects and 14 preterm cases, each o
 7–9 subjects (2–3 preterm), so per-fold AUROC is inherently unstable. This was true of the published
 analysis as well; it is stated here because it bears on how much weight the ranking can carry.
 
-### 1.3 The permutation test now gives a valid p-value
+### 1.3 The permutation test now yields a valid p-value
 
-A reviewer asked for a permutation test showing the model's discrimination exceeds chance. That test
-existed but was broken (see 2.4). Corrected result:
+A reviewer asked for a permutation test showing the model's discrimination exceeds chance. An earlier
+version of that test existed but required substantial revision (see 2.4). Updated result:
 
 | | Value |
 |---|---|
@@ -88,51 +88,52 @@ The null is centred on 0.502 — statistically indistinguishable from the 0.5 ex
 signal (z = 0.60), and 48.6% of null values fall below 0.5. That is the check that the null is
 legitimate.
 
-**With the uncorrected test the same data would have yielded p = 0.139** — i.e. "not significant".
-That would have been a false negative caused by an inflated null, not by the model.
+**With the earlier statistic the same data would have yielded p = 0.139** — i.e. "not significant".
+That outcome reflected an inflated null distribution rather than the model's actual discrimination.
 
 ---
 
-## 2. What was actually wrong, and what was done about it
+## 2. What changed in the analysis, in detail
 
-### 2.1 The microbiome was never CLR-transformed (changes results)
+### 2.1 The CLR transformation now applies as intended (changes results)
 
 Compositional data such as relative microbial abundances must be transformed before use in a linear
 model. The code intended a centred log-ratio (CLR) transform, but added a constant of **0.65** to
 relative abundances before taking logs. 0.65 is a pseudocount appropriate for raw *counts*; applied
 to proportions (which sum to 1) it dominates the signal, and combined with the downstream
-standardisation step it reduced to a per-feature `log(x + 0.65)` rescaling. The result: **no
-compositional transformation was ever applied.**
+standardisation step it reduced to a per-feature `log(x + 0.65)` rescaling. The practical effect was
+that **the intended compositional transformation was not taking effect.**
 
-**Fix.** Zeros are now replaced per taxon with `zCompositions::cmultRepl` (geometric Bayesian
+**Update.** Zeros are now replaced per taxon with `zCompositions::cmultRepl` (geometric Bayesian
 multiplicative method), followed by a genuine per-sample CLR (each sample's transformed values sum
 to zero). Zero-replacement levels are learned once on the full microbiome and are outcome-blind, so
 they cannot leak outcome information into the folds.
 
 **Effect:** reorders the model ranking (see 1.1).
 
-### 2.2 One genus was silently dropped from differential-abundance analysis (changes results)
+### 2.2 One genus is now retained in differential-abundance analysis (changes results)
 
 The absolute-count matrix used for ANCOM-BC2 was read in a way that renamed `Escherichia-Shigella`
-to `Escherichia.Shigella` (R's default column-name sanitisation) and then dropped it, because
-downstream code matched genus names literally. The taxon disappeared without any error.
+to `Escherichia.Shigella` (R's default column-name sanitisation). Because downstream code matched
+genus names literally, the renamed taxon was not picked up, and it dropped out of the candidate pool
+without raising any message.
 
-**Fix.** The matrix is now read preserving exact names and matched by name. The ANCOM candidate pool
-goes from 48 to **49** taxa, and the ANCOM-based results were re-derived.
+**Update.** The matrix is now read preserving exact names and matched by name. The ANCOM candidate
+pool goes from 48 to **49** taxa, and the ANCOM-based results were re-derived.
 
-### 2.3 Data domains were split by column position (robustness)
+### 2.3 Data domains are now split by name rather than column position (robustness)
 
 Microbiome and clinical blocks were separated positionally (`data[, 1:99]` and `data[, 98:167]`).
-Besides being fragile, the ranges overlapped: columns 98–99 (`index`, `id`) ended up in *both*
+Besides being fragile, the ranges overlapped: columns 98–99 (`index`, `id`) fell into *both*
 blocks.
 
-**Fix.** The split is now driven by an explicit list of variables in `config/data_dictionary.csv`
+**Update.** The split is now driven by an explicit list of variables in `config/data_dictionary.csv`
 (`role = microbiome`). No positional indexing anywhere in the pipeline. This also makes the pipeline
-usable on other datasets, which positional indexing prevented.
+usable on other datasets, which positional indexing had prevented.
 
-### 2.4 The permutation test was invalid (changes the reported p-value)
+### 2.4 The permutation test was rebuilt (changes the reported p-value)
 
-Four independent problems, all corrected:
+Four independent aspects were revised:
 
 **(a) The null distribution was inflated.** Per-fold AUROC was computed with pROC's
 `direction = "auto"`, which infers the orientation of the score from the data (it compares the two
@@ -140,26 +141,27 @@ groups' medians rather than being fixed a priori). Under randomly permuted label
 noise: the null distribution centred on **0.68** instead of 0.5, and only 0.4% of null values fell
 below 0.5. Because the null was nearly as high as the observed value, the test had almost no power.
 The AUROC is now computed with a fixed orientation (higher predicted probability = higher predicted
-risk), which is decided before seeing the labels. The corrected null centres on 0.502.
+risk), which is decided before seeing the labels. The updated null centres on 0.502.
 
 *Scope note:* for the winning model this changes nothing about the reported performance — we
 verified fold by fold that the fixed-direction and automatic-direction AUROCs are identical
-(0.760 either way). The distortion affects the *null*, not this observed value. Whether the same
-holds for the other 11 combinations has not been audited; the pipeline engine still reports
+(0.760 either way). The effect is on the *null*, not on this observed value. Whether the same holds
+for the other 11 combinations has not yet been examined; the pipeline engine still reports
 automatic-direction AUROC, and revisiting that is tracked as pending work.
 
-**(b) The observed value was stale and hardcoded.** The script compared the null against a
-hardcoded `0.813`, a value that predates corrections 2.1 and 2.2. The observed value is now
-recomputed from the current pipeline, using exactly the same code path and statistic as the null.
+**(b) The reference value is no longer hardcoded.** The script compared the null against a
+hardcoded `0.813`, which predates updates 2.1 and 2.2. The observed value is now recomputed from the
+current pipeline, using exactly the same code path and statistic as the null.
 
-**(c) It tested the wrong model.** The script targeted Random Forest / Approach 3 / full microbiome,
-which after the corrections is no longer the best model (it is 6th, at 0.680). The test now targets
-the model that is actually reported (see 1.1).
+**(c) It now targets the reported model.** The script was pointed at Random Forest / Approach 3 /
+full microbiome, which after these updates is no longer the best-performing combination (it is 6th,
+at 0.680). The test now targets the model that is actually reported (see 1.1).
 
-**(d) It could not run.** The script had drifted out of sync with the analysis engine (missing
-required arguments) and would have failed immediately. It also contained a bug that overwrote the
-full 572-permutation result with a 10-permutation trial run, while still reporting "572" in the
-output — so any p-value it produced would have been computed from 10 permutations.
+**(d) It now runs end to end.** The script had drifted out of sync with the analysis engine (missing
+required arguments) and would have stopped on the first call. It also overwrote the full
+572-permutation result with a 10-permutation trial run while still reporting "572" in the output, so
+any p-value it produced would have rested on 10 permutations. Both behaviours are resolved: there is
+now a single implementation that calls the current engine directly.
 
 Two further points, relevant to whether the null is trustworthy:
 
@@ -227,7 +229,7 @@ confirmed across independent runs.
   that this configuration was itself chosen as the best of 12 combinations evaluated on the same
   43 subjects. **p = 0.019 therefore quantifies "this particular model beats chance", not "the best
   of 12 models beats chance", and it carries no adjustment for multiplicity.** We report it
-  unadjusted and state the conditioning rather than substituting a corrected number we cannot
+  unadjusted and state the conditioning rather than substituting an adjusted number we cannot
   justify: a naive Bonferroni adjustment (0.019 × 12 ≈ 0.23) would over-correct badly, because the
   12 combinations are not independent tests — they share the same subjects, the same outer folds
   and largely the same features, so the effective number of independent comparisons is well below
@@ -237,8 +239,8 @@ confirmed across independent runs.
   deviations are large (see 1.2) and the ranking among mid-table combinations should not be
   over-interpreted.
 - **The engine still reports automatic-direction AUROC** for its performance tables. For the winning
-  model this is verified to be identical to the fixed-direction value; it has not been audited for
-  the other combinations.
+  model this is verified to be identical to the fixed-direction value; it has not yet been examined
+  for the other combinations.
 
 ---
 
@@ -254,10 +256,11 @@ confirmed across independent runs.
 | `tests/testthat/` | Test suite, including no-leakage checks |
 | `data/example/` | Synthetic example data |
 | `vignettes/ptbpredict.Rmd` | Narrative walkthrough of a complete run |
-| `CONTRIBUTING.md` | Invariants that must not be broken; how to propose a change |
+| `CONTRIBUTING.md` | Invariants that must be preserved; how to propose a change |
 | `results/permutation_test/` | Saved permutation-test artefacts (figure, null distribution, per-fold table) |
-| `results/published_version/` | Archived report and figures from before these corrections |
+| `results/published_version/` | Archived report and figures from before these updates |
 
-The previous permutation-test implementation (`analysis/permutation_test_nested_cv.Rmd`) was removed
-rather than repaired: it duplicated the analysis engine, and that duplication is precisely how it
-drifted out of sync and produced the invalid test described in 2.4. It remains in the Git history.
+The previous permutation-test implementation (`analysis/permutation_test_nested_cv.Rmd`) was retired
+rather than revised: it duplicated the analysis engine, and that duplication is precisely how it
+drifted out of sync with it. Maintaining a single implementation is what the current
+`scripts/permutation_test.R` provides. The retired file remains in the Git history.

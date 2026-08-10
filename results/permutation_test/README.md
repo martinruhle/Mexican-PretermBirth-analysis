@@ -20,10 +20,10 @@ the case of the figure.
 | **One-sided permutation p-value** | **0.019** |
 
 The null is centred on 0.502 and 48.6% of its mass falls below 0.5, which is the check that
-the null is legitimate (a permuted-label AUROC should average 0.5). With the previous,
-uncorrected statistic the same data gave p = 0.139; see
-[`docs/UPDATE_SINCE_PUBLICATION.md` §2.4](../../docs/UPDATE_SINCE_PUBLICATION.md) for what was
-wrong and why.
+the null is legitimate (a permuted-label AUROC should average 0.5). With the statistic used
+previously the same data gave p = 0.139; see
+[`docs/UPDATE_SINCE_PUBLICATION.md` §2.4](../../docs/UPDATE_SINCE_PUBLICATION.md) for what changed
+and why.
 
 ![Null distribution of AUROC under 999 subject-level label permutations](permutation_null_final999.png)
 
@@ -33,7 +33,7 @@ wrong and why.
 |---|---|
 | `permutation_null_final999.png` | Histogram of the null distribution with the observed AUROC and the p-value annotated. Raster version, renders inline on GitHub. |
 | `permutation_null_final999.pdf` | The same figure, vector format, for publication. |
-| `permutation_summary_final999.csv` | One-row summary: target model/approach/microbiome input, observed AUROC, null mean/SD/median/min/max, `n_permutations` (999), `n_valid` (998), `n_exceeding` (18), `p_value` (0.019) and `p_value_auto_broken` (0.139 — what the uncorrected statistic would have reported). |
+| `permutation_summary_final999.csv` | One-row summary: target model/approach/microbiome input, observed AUROC, null mean/SD/median/min/max, `n_permutations` (999), `n_valid` (998), `n_exceeding` (18) and `p_value` (0.019). The final column carries 0.139, the value the automatic-orientation statistic used previously would have reported, kept for comparison. |
 | `permutation_null_final999.csv` | The null distribution as plain text: 999 rows with `permutation`, `seed`, `auroc_fixed` (fixed-orientation AUROC, the statistic used), `auroc_auto` (automatic-orientation AUROC, kept for comparison) and `n_folds_valid`. |
 | `perm_null_final999.rds` | The raw R object behind the two CSVs: the 999 null values (fixed and automatic orientation), valid folds per permutation, the seeds, the wall-clock runtime, and the observed run embedded for reference. |
 | `perm_observed.rds` | The unpermuted run: observed AUROC (fixed and automatic orientation), per-fold metrics, per-fold fixed-orientation AUROC, and the out-of-fold subject-level predictions. |

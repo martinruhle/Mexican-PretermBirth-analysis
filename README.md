@@ -3,18 +3,18 @@
 [![R-CI](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml/badge.svg)](https://github.com/martinruhle/Mexican-PretermBirth-analysis/actions/workflows/check-code.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> ## ⚠️ Read this first if you arrived from the article
+> ## 📌 Read this first if you arrived from the article
 >
-> **After publication, this analysis code was audited, several methodological errors were found,
-> and the corrections changed some of the reported numbers.** The published article is not being
-> amended — **this repository is the authoritative record of the corrected analysis.**
+> **After publication, this analysis code was reviewed and several methodological updates were
+> made; some of them change the reported numbers.** The published article is not being amended —
+> **this repository is the authoritative record of the updated analysis.**
 >
 > ### → **[docs/UPDATE_SINCE_PUBLICATION.md](docs/UPDATE_SINCE_PUBLICATION.md)** — what changed, why, and by how much
 >
 > Short version: the best-performing model is no longer Random Forest with the full microbiome at
 > AUROC 0.813, but **elastic net with ANCOM-BC2-selected taxa at AUROC 0.760**, and the
-> permutation test that supports it — previously broken — now gives **p = 0.019**. The study
-> design, cohort, data and biological question are unchanged. The current numbers are in
+> permutation test that supports it — since rebuilt — now gives **p = 0.019**. The study design,
+> cohort, data and biological question are unchanged. The current numbers are in
 > [Results](#results-current) below.
 
 **Status:** Published in *Frontiers in Global Women's Health* —
@@ -31,7 +31,7 @@ microbiome patterns associated with preterm birth in a Mexican cohort.
 Front. Glob. Women's Health 7:1799518. doi: 10.3389/fgwh.2026.1799518
 ```
 
-If you use the **corrected** results, please also point readers to
+If you use the **updated** results, please also point readers to
 [`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md), since they differ from
 the article. Machine-readable metadata is in [`CITATION.cff`](CITATION.cff).
 
@@ -106,9 +106,9 @@ The three clinical variable sets and the two microbiome inputs are defined in
 
 > **Note on the previous numbers.** The article reports a best model of Random Forest / data-driven
 > clinical set / full microbiome at AUROC 0.813. That combination now scores **0.680**, mid-table
-> (tied with another combination at the same AUROC) — a direct consequence of fixing the CLR
+> (tied with another combination at the same AUROC) — a direct consequence of the updated CLR
 > transformation. An **AUROC of 0.849 appeared in earlier versions of this README**; it came from a
-> render made before contaminant filtering was applied and is obsolete. See
+> render made before contaminant filtering was applied and is superseded. See
 > [`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md).
 
 ### Permutation test
@@ -129,7 +129,7 @@ re-run each time.
 
 The null is centred on 0.502, statistically indistinguishable from the 0.5 expected under no
 signal, and 48.6% of null values fall below 0.5 — that is the check that the null is legitimate.
-With the previously used (broken) statistic, the same data would have given p = 0.139.
+With the statistic used previously, the same data would have given p = 0.139.
 
 The saved artefacts — null distribution, summary table, per-fold supplementary table and the
 figure in both raster and vector form — are versioned in
@@ -144,7 +144,7 @@ re-running it (≈3.6 h on 8 cores).
   is the best of the 12 combinations evaluated on the same subjects, so **p = 0.019 quantifies
   "this particular model beats chance", not "the best of 12 models beats chance", and it is not
   adjusted for having examined 12 combinations.** We report it unadjusted and state the
-  conditioning explicitly rather than substituting a corrected number we cannot justify: a naive
+  conditioning explicitly rather than substituting an adjusted number we cannot justify: a naive
   Bonferroni adjustment (0.019 × 12 ≈ 0.23) would over-correct badly, because the 12 combinations
   are not independent tests — they share the same subjects, the same outer folds and largely the
   same features, so the effective number of independent comparisons is well below 12. Read the
@@ -156,8 +156,8 @@ re-running it (≈3.6 h on 8 cores).
   hypothesis-generating.
 - **AUROC orientation.** The pipeline reports AUROC computed with `pROC`'s automatic orientation.
   For the reported model this was verified fold by fold to be identical to a fixed orientation
-  (0.760 either way); it has not been audited for the other 11 combinations. The permutation test
-  uses a fixed orientation throughout, which is what makes its null valid.
+  (0.760 either way); it has not yet been examined for the other 11 combinations. The permutation
+  test uses a fixed orientation throughout, which is what makes its null valid.
 - **Environmental taxa.** Some taxa recurrently selected by the differential-abundance step are
   common reagent contaminants. A contaminant filter is applied, but without sequenced negative
   controls (extraction and PCR blanks) technical and biological signals cannot be fully separated.
@@ -365,7 +365,7 @@ return value — read them in the source files below.
 | [`run_baseline.R`](scripts/run_baseline.R) | Renders the pipeline and additionally saves the 12 combinations as a numeric CSV, so two runs can be compared row by row. Honours `PTB_PROFILE` and `PTB_RUN_TAG`. This is the normal way to run the analysis. |
 | [`permutation_test.R`](scripts/permutation_test.R) | The permutation test, single implementation. Three modes via `PTB_PERM_MODE`: `verify` (observed value + per-fold table), `run` (null distribution, parallel), `report` (p-value, tables and figure from a saved null). |
 | [`generate_example_data.R`](scripts/generate_example_data.R) | Regenerates `data/example/` from a fixed seed. Taxa names and column roles come from `config/data_dictionary.csv`, never hardcoded. |
-| [`sensitivity_nonindependence_weight.R`](scripts/sensitivity_nonindependence_weight.R) | Sensitivity analysis weighting samples by the inverse number of visits per subject. ⚠ Currently out of sync with the engine's function signatures and will error if run as-is; see [`CONTRIBUTING.md`](CONTRIBUTING.md). |
+| [`sensitivity_nonindependence_weight.R`](scripts/sensitivity_nonindependence_weight.R) | Sensitivity analysis weighting samples by the inverse number of visits per subject. Note: still written against an earlier version of the engine's function signatures, so it needs updating before it will run; see [`CONTRIBUTING.md`](CONTRIBUTING.md). |
 
 ### `config/`
 
@@ -380,8 +380,8 @@ return value — read them in the source files below.
 - **[`permutation_test/`](results/permutation_test/)** — the permutation test artefacts and their
   own README. **Current.**
 - **[`published_version/`](results/published_version/)** — the rendered report and figures from
-  before the corrections. **Archived, superseded** — kept so the published state stays
-  inspectable. Do not cite these numbers.
+  before these updates. **Archived, superseded** — kept so the published state stays
+  inspectable. Please cite the current results instead.
 
 ### `docs/`
 
@@ -395,8 +395,8 @@ return value — read them in the source files below.
 
 ## Methods, as implemented
 
-This section describes what the code does. Where the article's prose and the code disagree, the
-code is what is documented here.
+This section describes the pipeline as implemented. Where the article's prose and the implementation
+differ, the description here follows the implementation.
 
 ### Validation design
 
@@ -457,14 +457,14 @@ Two microbiome inputs are compared:
 | **3 — data-driven** | Univariate screening **within each fold**: completeness filters (80% of subjects, 70% of samples), p < 0.30, top 15 candidates, collinearity resolution at \|r\| > 0.95, up to 10 features. |
 
 Every combination therefore uses microbiome **and** clinical features together; the two microbiome
-inputs and three clinical sets are what vary. (Earlier versions of this README described the design
-as microbiome-only vs clinical-only vs combined — that was never what the code did.)
+inputs and three clinical sets are what vary. (Earlier versions of this README summarised the design
+as microbiome-only vs clinical-only vs combined; the description above reflects the implementation.)
 
 ### Preprocessing recipe (per fold, fitted on inner-train)
 
 Zero-variance removal → correlation filter (\|r\| > 0.95) → novel/rare factor level handling →
 **median/mode imputation** → standardisation → dummy coding → near-zero-variance removal.
-Imputation is single median/mode inside the recipe, not multiple imputation.
+Imputation is a single median/mode step inside the recipe (not multiple imputation).
 
 ### Models
 
@@ -556,10 +556,10 @@ never allowed to skip in CI) → smoke-run the pipeline on `data/example/`.
 
 ## Contributing
 
-Bug reports and questions: [GitHub Issues](https://github.com/martinruhle/Mexican-PretermBirth-analysis/issues).
+Questions and issue reports: [GitHub Issues](https://github.com/martinruhle/Mexican-PretermBirth-analysis/issues).
 
 Before proposing a code change, please read **[CONTRIBUTING.md](CONTRIBUTING.md)** — it documents
-how to run the tests, the leakage invariants that must not be broken, and why the engine must
+how to run the tests, the leakage invariants that must be preserved, and why the engine should
 never be duplicated.
 
 ---
@@ -577,7 +577,7 @@ with attribution and without warranty. Terms for the cohort data are described s
 **Martin Ruhle** — Doctoral Program in Biomedical Sciences, Instituto Nacional de Medicina
 Genómica, Mexico City · martinruhle@gmail.com
 
-- Bugs and questions: [GitHub Issues](https://github.com/martinruhle/Mexican-PretermBirth-analysis/issues)
+- Questions and issue reports: [GitHub Issues](https://github.com/martinruhle/Mexican-PretermBirth-analysis/issues)
 - Data access: [`docs/DATA_ACCESS.md`](docs/DATA_ACCESS.md)
 
 ---

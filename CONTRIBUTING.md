@@ -1,12 +1,12 @@
 # Contributing
 
 Thanks for looking at this code. This is a research compendium for a published analysis, so the
-priority is that results stay verifiable: a change that improves the code but silently moves a
-number is worse than no change at all.
+priority is that results stay verifiable: a change that improves the code but moves a reported number
+without saying so is worse than no change at all.
 
 Please read [`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md) first. It
-explains which published numbers were corrected and why — most of the rules below exist because of
-one of those corrections.
+explains which published numbers were updated and why — most of the rules below exist because of one
+of those updates.
 
 ---
 
@@ -51,9 +51,10 @@ PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 
 Expect **56 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
 re-runs a reduced nested CV under 10 label permutations and accounted for ~17 of the 18.4 minutes in
-a recent local run. (The estimate in that file's header comment is stale and much too optimistic.)
+a recent local run. (The estimate in that file's header comment is out of date and much too
+optimistic.)
 
-If anything skips with `PTB_RUN_SLOW_TESTS=1`, something is wrong with the environment — a green
+If anything skips with `PTB_RUN_SLOW_TESTS=1`, check your environment — a green
 suite that skipped the leakage test is not green.
 
 CI ([`.github/workflows/check-code.yml`](.github/workflows/check-code.yml)) restores the pinned
@@ -64,11 +65,12 @@ Any new function in `R/` needs a `testthat` test.
 
 ---
 
-## The invariants — do not break these
+## The invariants — please preserve these
 
-These are the properties that make the reported performance estimates honest. Every one of them is
-enforced by a test, and several exist because a violation was found and fixed. A change that
-trips one of these is not a refactor.
+These are the properties that keep the reported performance estimates trustworthy. Every one of them
+is enforced by a test, and several were made explicit as part of the methodological updates
+documented in `docs/UPDATE_SINCE_PUBLICATION.md`. A change that trips one of these is not a
+refactor.
 
 1. **Nothing is ever learned from the outer-test fold.** Within a fold: ANCOM-BC2 taxa selection
    and the Approach-3 univariate screening are fitted on the **outer-training** subjects; the
@@ -84,14 +86,15 @@ trips one of these is not a refactor.
 4. **Microbiome and clinical columns are separated by the explicit list in
    `config/data_dictionary.csv`** (`role == "microbiome"`). Never by positional indices
    (`data[, 1:99]`), never by a name regex. The positional version had overlapping ranges that put
-   the key columns in both domains, and it is why the pipeline could not be used on other datasets.
+   the key columns in both domains, and it is what prevented the pipeline being used on other
+   datasets.
 5. **Zero replacement is outcome-blind.** `fit_clr_zerorepl()` learns replacement levels once, over
    the full microbiome, without ever seeing the outcome, and they are passed in as the `zero_levels`
    argument. Do not make them depend on labels or on a fold.
 6. **The CLR is per sample.** Each sample is centred by the geometric mean of its own taxa, so each
    transformed row sums to zero. Do not centre per feature, and do not add a pseudocount to
-   relative abundances — that was the original bug, and it meant no compositional transform was
-   ever applied.
+   relative abundances — the earlier version did, which prevented the compositional transform from
+   taking effect (see update 2.1).
 7. **Each figure and table comes from the same model, trained once.** Do not refit a model to draw
    a plot. Every builder in `R/plots.R` takes already-computed results and returns a ggplot.
 8. **Permuting labels must reach every consumer of the outcome.** The outcome is read in three
@@ -106,13 +109,13 @@ trips one of these is not a refactor.
 **Do not copy engine code into a script, notebook or `.Rmd` in order to modify it.** If a script
 needs different behaviour, add a parameter to the function in `R/` and call it.
 
-This is not a style preference. The permutation test supporting the paper's significance claim was
-a second, copied implementation of the nested CV loop. It drifted out of sync with the engine,
-could no longer run, tested the wrong model, compared against a stale hardcoded number, and used a
-statistic that inflated the null distribution to ~0.68 instead of 0.5. The published p-value came
-from that copy. It has since been deleted and replaced by
-[`scripts/permutation_test.R`](scripts/permutation_test.R), which re-executes the real pipeline
-setup and calls the real engine. Full account:
+This is not a style preference; it comes from experience on this project. The earlier permutation
+test was a second, copied implementation of the nested CV loop. Because it was a copy, it drifted out
+of sync with the engine as the engine evolved: it ended up pointing at a superseded reference value
+and a different model, and using an AUROC orientation that placed the null distribution near 0.68
+rather than 0.5. Keeping one implementation is what prevents that class of divergence. It has since
+been replaced by [`scripts/permutation_test.R`](scripts/permutation_test.R), which re-executes the
+real pipeline setup and calls the engine directly. Full account:
 [`docs/UPDATE_SINCE_PUBLICATION.md` §2.4](docs/UPDATE_SINCE_PUBLICATION.md).
 
 Related rules:
@@ -143,9 +146,8 @@ Refactoring must not change results. The workflow is:
 Any difference is something to investigate and explain, not noise. If a change is *meant* to move
 the numbers, say so explicitly in the pull request, quantify the shift, and update
 [`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md) and the results table in the
-[README](README.md) in the same change. Those two documents are the record readers arriving from
-the article rely on; leaving them stale is how the 0.849 figure survived in this README long after
-it stopped being true.
+[README](README.md) in the same change. Those two documents are what readers arriving from the
+article rely on, so keeping them in step with the code is part of the change, not a follow-up.
 
 Without the restricted data you cannot reproduce the real-cohort baseline. Use
 `PTB_PROFILE=example` for a same-vs-same comparison instead: the absolute values are meaningless,
@@ -168,30 +170,32 @@ too.
 
 ---
 
-## Known rough edges
+## Known limitations and open items
 
-Already known, so you are not surprised and do not need to report them. Fixes welcome as separate
-pull requests.
+Already tracked, so you are not surprised and do not need to report them. Contributions welcome as
+separate pull requests.
 
-- **`scripts/sensitivity_nonindependence_weight.R` is out of sync** with the engine: it calls
-  `apply_clr_transform(data, taxa_cols)` without the now-required `zero_levels` argument and errors
-  if run. It needs to be migrated onto the current `R/` API.
+- **`scripts/sensitivity_nonindependence_weight.R` predates the current engine API:** it calls
+  `apply_clr_transform(data, taxa_cols)` without the now-required `zero_levels` argument, so it needs
+  migrating onto the current `R/` interface before it will run.
 - **`R CMD check` emits NOTES.** The engine calls several analysis packages unqualified (a
   legacy of its `.Rmd` origins) and `PRROC` and `microbiome` are used at runtime without being
-  declared in `DESCRIPTION`. It installs and tests fine; it is not yet check-clean.
+  declared in `DESCRIPTION`. It installs and tests cleanly; full check-cleanliness is still open.
 - **`renv.lock` contains two hand-pinned packages** (`microbiome`, `Rtsne`). `microbiome` is a
   `Suggests` of ANCOMBC that this pipeline genuinely needs at runtime, and renv's implicit snapshot
   does not follow `Suggests`. **Do not run `renv::snapshot()` without re-pinning them** — a
-  snapshot can drop them, and a clean `renv::restore()` would then break the ANCOM tests.
-- **The pipeline prints `12 arguments not used by format` warnings** — a malformed `sprintf` in the
-  completeness helper inside the analysis `.Rmd`. It affects the log only, not results.
+  snapshot can drop them, and a clean `renv::restore()` would then leave the ANCOM tests without a
+  dependency they need.
+- **The pipeline prints `12 arguments not used by format` warnings** — a `sprintf` call in the
+  completeness helper inside the analysis `.Rmd` whose format string needs consolidating. It affects
+  the log only, not results.
 - **AUROC uses `pROC`'s automatic orientation** in the engine (`R/nested_cv.R`, `R/threshold.R`).
-  Harmless with real signal, but it inflates the AUROC of *random* labels above 0.5, which is why
+  Immaterial with real signal, but it raises the AUROC of *random* labels above 0.5, which is why
   the end-to-end permutation test asserts strictly on balanced accuracy and only loosely on AUROC.
   Fixing the orientation would let that guard be tightened — but it is a results-affecting change,
   so it needs the baseline comparison above.
-- **Alphanumeric subject/sample ids break the PCA figure**, and taxa present in fewer than 2
-  samples break the exploratory zero replacement. Both are documented under
+- **Alphanumeric subject/sample ids are not yet supported by the PCA figure**, and the exploratory
+  zero replacement needs each taxon present in at least 2 samples. Both are documented under
   [Known reusability limits](README.md#known-reusability-limits).
 
 ---
@@ -199,7 +203,7 @@ pull requests.
 ## Reporting a problem
 
 Open an issue with: what you ran (command and `PTB_PROFILE`), what you expected, what happened
-(full error text), and the output of `sessionInfo()`. If it concerns results, say whether you were
+(full console output), and the output of `sessionInfo()`. If it concerns results, say whether you were
 using the real cohort data or `data/example/`.
 
 Please be constructive, keep discussion on scientific and reproducibility merit, and remember that

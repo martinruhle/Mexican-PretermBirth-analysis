@@ -30,7 +30,7 @@ minutes. Everything shown is copy-pasteable, and console output is quoted from a
 
 > **If you arrived from the published article**, read
 > [`docs/UPDATE_SINCE_PUBLICATION.md`](https://github.com/martinruhle/Mexican-PretermBirth-analysis/blob/master/docs/UPDATE_SINCE_PUBLICATION.md)
-> first. Several methodological errors were corrected after publication and some reported numbers
+> first. Several methodological updates were made after publication and some reported numbers
 > changed.
 
 ## What the pipeline does
@@ -138,8 +138,8 @@ head(taxa, 3)
 ```
 
 Names are read with `check.names = FALSE`, so hyphens and taxonomic prefixes survive intact —
-`Escherichia-Shigella` used to be silently mangled into `Escherichia.Shigella` and then dropped
-from differential-abundance analysis.
+`Escherichia-Shigella` was previously sanitised to `Escherichia.Shigella` on read, which kept it out
+of differential-abundance analysis.
 
 ## Step 3 — load and validate
 
@@ -196,9 +196,9 @@ The CLR is **per sample**: each row is centred by the geometric mean of its own 
 transformed row sums to zero. Being row-local, it cannot move information between training and test
 data — which is why applying it to all three splits is safe.
 
-This is the step that was wrong in the published analysis: a pseudocount of 0.65, appropriate for
-raw counts, was added to relative abundances, and after the downstream standardisation step the
-whole thing collapsed to a per-feature rescaling. No compositional transform was ever applied. See
+This is the step updated after publication: a pseudocount of 0.65, appropriate for raw counts, was
+added to relative abundances, and after the downstream standardisation step that reduced to a
+per-feature rescaling, so the intended compositional transform was not taking effect. See
 `docs/UPDATE_SINCE_PUBLICATION.md` §2.1.
 
 ## Step 5 — the nested CV loop
@@ -272,7 +272,7 @@ AUROC 0.760 ± 0.270; the full table is in the repository README.
 
 On the **synthetic example data the numbers are meaningless** and are not expected to resemble the
 real ones — different data. The criterion for the example run is only that all 12 combinations and
-every figure complete without error. Treat it as a smoke test of your installation.
+every figure complete successfully. Treat it as a smoke test of your installation.
 
 ## Step 7 — the permutation test
 
@@ -294,7 +294,7 @@ Result on the real cohort: observed 0.760 against a null of 0.502 ± 0.121, 18 o
 permutations reaching the observed value, **p = 0.019**. The artefacts are versioned in
 `results/permutation_test/`, so none of this needs re-running to be checked.
 
-Two details make the null trustworthy, and both were wrong before:
+Two details make the null trustworthy, and both were introduced by the update:
 
 - **The AUROC orientation is fixed** rather than inferred from the data. With an inferred
   orientation the null distribution centred on 0.68 instead of 0.5 and the test had almost no
@@ -333,7 +333,7 @@ Then:
 PTB_PROFILE=mylab Rscript scripts/run_baseline.R
 ```
 
-Validate the contract first — it is much cheaper than debugging a failed run:
+Validate the contract first — it is much cheaper than diagnosing a run that stops midway:
 
 ```{r own-validate}
 cfg <- read_config("mylab")

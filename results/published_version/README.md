@@ -1,42 +1,41 @@
 # `results/published_version/` — output of the published analysis
 
-> **⚠ These are archived outputs. They correspond to the analysis as published and predate the
-> methodological corrections described in
-> [`docs/UPDATE_SINCE_PUBLICATION.md`](../../docs/UPDATE_SINCE_PUBLICATION.md). Do not cite the
-> numbers in this directory as current results.**
+> **📌 These are archived outputs. They correspond to the analysis as published and predate the
+> methodological updates described in
+> [`docs/UPDATE_SINCE_PUBLICATION.md`](../../docs/UPDATE_SINCE_PUBLICATION.md). Please cite the
+> current results rather than the numbers in this directory.**
 
 This directory is kept so that the state of the analysis at publication time remains inspectable
-alongside the corrected state. It is a record, not a result.
+alongside the updated state. It is a record, not a current result.
 
 ## What is here
 
 | Path | What it is |
 |---|---|
-| `integrated_preterm_prediction_workflow.html` | Rendered report of the pipeline, from a run made before the corrections. |
+| `integrated_preterm_prediction_workflow.html` | Rendered report of the pipeline, from a run made before these updates. |
 | `figures/` | The 11 figures produced by that same run. |
 
 ## Why these numbers differ from the current ones
 
-This render is even older than the published article: it was produced **before the contaminant
-filtering step was applied**, so it works from 59 genera instead of 49 and reports a best-model
-AUROC of **0.849**. The published article reports **0.813** (post-filtering). Both predate the
-corrections below.
+This render predates even the published article: it was produced **before the contaminant filtering
+step was applied**, so it works from 59 genera instead of 49 and reports a best-model AUROC of
+**0.849**. The published article reports **0.813** (post-filtering). Both predate the updates below.
 
 The figure filenames also reflect that age — some are named after pipeline chunks
 (`feature_importance_no_retrain`) that no longer exist in
 `analysis/integrated_preterm_prediction_workflow.Rmd`.
 
-Since this render was made, three corrections changed the results:
+Since this render was made, three methodological updates changed the results:
 
-1. The microbiome was never actually CLR-transformed (a pseudocount appropriate for counts was
-   added to relative abundances). Fixing it reorders the model ranking.
-2. One genus (`Escherichia-Shigella`) was silently dropped from differential-abundance analysis.
-3. The permutation test supporting the significance claim was invalid and did not run.
+1. The CLR transformation now applies as intended (a pseudocount appropriate for counts had been
+   added to relative abundances). This reorders the model ranking.
+2. One genus (`Escherichia-Shigella`) is now retained in differential-abundance analysis.
+3. The permutation test supporting the significance claim was rebuilt.
 
 The current best model is **elastic net · Approach 3 · ANCOM-BC2 taxa, AUROC 0.760 ± 0.270**,
-with a permutation p-value of **0.019**. Full detail, including what each correction changed, is
-in [`docs/UPDATE_SINCE_PUBLICATION.md`](../../docs/UPDATE_SINCE_PUBLICATION.md); the corrected
-results table is in the [repository README](../../README.md#results-current).
+with a permutation p-value of **0.019**. Full detail, including what each update changed, is in
+[`docs/UPDATE_SINCE_PUBLICATION.md`](../../docs/UPDATE_SINCE_PUBLICATION.md); the current results
+table is in the [repository README](../../README.md#results-current).
 
 ## Where the current outputs live
 
