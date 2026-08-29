@@ -16,7 +16,7 @@ amended; this repository is the authoritative record of the updated analysis, an
 the changelog between the two.
 
 If you are reading the article and want the current numbers, use the tables in this document, or the
-results table in [`README.md`](../README.md#results-current) — not the figures in the published PDF,
+results table in [`README.md`](../README.md#results) — not the figures in the published PDF,
 and not the archived report in
 [`results/published_version/`](../results/published_version/), which predates these updates.
 

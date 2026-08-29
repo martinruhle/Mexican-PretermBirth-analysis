@@ -35,11 +35,11 @@ Since this render was made, three methodological updates changed the results:
 The current best model is **elastic net · Approach 3 · ANCOM-BC2 taxa, AUROC 0.760 ± 0.270**,
 with a permutation p-value of **0.019**. Full detail, including what each update changed, is in
 [`docs/UPDATE_SINCE_PUBLICATION.md`](../../docs/UPDATE_SINCE_PUBLICATION.md); the current results
-table is in the [repository README](../../README.md#results-current).
+table is in the [repository README](../../README.md#results).
 
 ## Where the current outputs live
 
-- **Results table and headline numbers:** [`README.md`](../../README.md#results-current)
+- **Results table and headline numbers:** [`README.md`](../../README.md#results)
 - **Permutation test artefacts (versioned):** [`results/permutation_test/`](../permutation_test/)
 - **Regenerating the full report:** running
   `analysis/integrated_preterm_prediction_workflow.Rmd` writes a fresh HTML report to

@@ -6,11 +6,9 @@
 > ## 📌 Read this first if you arrived from the article
 >
 > **After publication, this analysis code was reviewed and several methodological updates were
-> made.
-> **this repository is the authoritative record of the ongoing analysis.**
+> made. This repository is the authoritative record of the ongoing analysis.**
 >
 > ### → **[docs/UPDATE_SINCE_PUBLICATION.md](docs/UPDATE_SINCE_PUBLICATION.md)** — what changed, why, and by how much
->
 
 **Status:** Published in *Frontiers in Global Women's Health* —
 [doi:10.3389/fgwh.2026.1799518](https://doi.org/10.3389/fgwh.2026.1799518). Analysis code updated
@@ -27,14 +25,14 @@ Front. Glob. Women's Health 7:1799518. doi: 10.3389/fgwh.2026.1799518
 ```
 
 If you use the **updated** results, please also point readers to
-[`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md)
+[`docs/UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md).
 
 ---
 
 ## Contents
 
 - [What this is](#what-this-is)
-- [Results (current)](#results-current)
+- [Results](#results)
 - [Limitations](#limitations)
 - [Run the pipeline on the example data](#run-the-pipeline-on-the-example-data)
 - [Use the pipeline with your own data](#use-the-pipeline-with-your-own-data)

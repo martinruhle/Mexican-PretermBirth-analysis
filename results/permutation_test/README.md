@@ -33,7 +33,7 @@ and why.
 |---|---|
 | `permutation_null_final999.png` | Histogram of the null distribution with the observed AUROC and the p-value annotated. Raster version, renders inline on GitHub. |
 | `permutation_null_final999.pdf` | The same figure, vector format, for publication. |
-| `permutation_summary_final999.csv` | One-row summary: target model/approach/microbiome input, observed AUROC, null mean/SD/median/min/max, `n_permutations` (999), `n_valid` (998), `n_exceeding` (18) and `p_value` (0.019). The final column carries 0.139, the value the automatic-orientation statistic used previously would have reported, kept for comparison. |
+| `permutation_summary_final999.csv` | One-row summary: target model/approach/microbiome input, observed AUROC, null mean/SD/median/min/max, `n_permutations` (999), `n_valid` (998), `n_exceeding` (18) and `p_value` (0.019). The final column, `p_value_prior_statistic`, carries 0.139 — the value the automatic-orientation statistic used previously would have reported — kept for comparison. |
 | `permutation_null_final999.csv` | The null distribution as plain text: 999 rows with `permutation`, `seed`, `auroc_fixed` (fixed-orientation AUROC, the statistic used), `auroc_auto` (automatic-orientation AUROC, kept for comparison) and `n_folds_valid`. |
 | `perm_null_final999.rds` | The raw R object behind the two CSVs: the 999 null values (fixed and automatic orientation), valid folds per permutation, the seeds, the wall-clock runtime, and the observed run embedded for reference. |
 | `perm_observed.rds` | The unpermuted run: observed AUROC (fixed and automatic orientation), per-fold metrics, per-fold fixed-orientation AUROC, and the out-of-fold subject-level predictions. |
@@ -64,9 +64,10 @@ PTB_PERM_MODE=run PTB_PERM_N=999 PTB_PERM_CORES=8 PTB_PERM_TAG=final999 Rscript 
 PTB_PERM_MODE=report PTB_PERM_TAG=final999 Rscript scripts/permutation_test.R
 ```
 
-Step 3 only reads the `.rds` files, so the figure and the summary table can be rebuilt from
-`perm_null_final999.rds` and `perm_observed.rds` in this directory without the cohort data —
-copy them into `analysis/_output/` first.
+Step 3 recomputes the p-value, the tables and the figure from `perm_null_final999.rds` rather than
+re-running the permutations, so it takes seconds. It still loads the pipeline scaffolding first, so
+it needs the cohort data present like the other two modes; copy `perm_null_final999.rds` and
+`perm_observed.rds` from this directory into `analysis/_output/` before running it.
 
 The permutation seeds are fixed (`10001`–`10999`), so the null distribution and the p-value
 are reproducible; this was confirmed across independent runs.

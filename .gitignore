@@ -266,3 +266,6 @@ docs/PLAYBOOK_reproducibilidad.md
 
 data/metadata/*
 !data/metadata/.gitkeep
+
+# Stray plot device output (R writes this when a script opens a PDF device)
+Rplots.pdf

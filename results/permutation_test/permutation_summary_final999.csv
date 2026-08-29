@@ -1,2 +1,2 @@
-"model","approach","microbiome","observed_auroc","null_mean","null_sd","null_median","null_min","null_max","n_permutations","n_valid","n_exceeding","p_value","p_value_auto_broken"
+"model","approach","microbiome","observed_auroc","null_mean","null_sd","null_median","null_min","null_max","n_permutations","n_valid","n_exceeding","p_value","p_value_prior_statistic"
 "glmnet_base","Approach3_DataDriven","ANCOM_Taxa",0.76,0.502294191557719,0.120639398266337,0.503809523809524,0.183888888888889,0.912777777777778,999,998,18,0.019019019019019,0.139139139139139

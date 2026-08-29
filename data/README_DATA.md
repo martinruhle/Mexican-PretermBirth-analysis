@@ -328,9 +328,11 @@ To request access to complete microbiome abundance data:
 
 ## Updates and Versioning
 
-**Current version:** v1.0 (January 2025)
-- Initial public release with manuscript submission
-- Metadata reflects final analysis dataset used in manuscript
+**Current version:** v1.1 (August 2026)
+- Accompanies the published article (doi: 10.3389/fgwh.2026.1799518)
+- Metadata reflects the analysis dataset used in the manuscript; unchanged since v1.0
+- The analysis code has been updated since publication (see `docs/UPDATE_SINCE_PUBLICATION.md`);
+  those updates affect the analysis, not these data files.
 
 **Future updates:**
 - Additional follow-up data (if collected)
@@ -366,4 +368,4 @@ This study follows:
 
 ---
 
-**Last Updated:** January 2025
+**Last Updated:** 2026-08-10

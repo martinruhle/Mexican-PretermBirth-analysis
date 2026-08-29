@@ -239,7 +239,7 @@ if (identical(MODE, "verify")) {
       mean(f), sd(f), (mean(f) - 0.5) / (sd(f) / sqrt(length(f))))
   say("  fraccion nula < 0.5 : %.3f  (con direction=auto: %.3f)", mean(f < 0.5), mean(a < 0.5))
   say("  p-value (fija)      : %.4f   [%d/%d >= observado]", pv, sum(f >= obs), length(f))
-  say("  p-value (auto,roto) : %.4f   [%d/%d]  <- lo que habria reportado el script viejo",
+  say("  p-value (auto,previo): %.4f   [%d/%d]  <- lo que habria reportado el estadistico anterior",
       pv_auto, sum(a >= obs), length(a))
   say("  validas %d/%d | folds computables %.3f/5 | perms con fold degenerado %d",
       length(f), r$n_perm, mean(r$n_folds_valid), sum(r$n_folds_valid < nrow(cv_folds)))
@@ -254,7 +254,7 @@ if (identical(MODE, "verify")) {
                        null_min = min(f), null_max = max(f),
                        n_permutations = r$n_perm, n_valid = length(f),
                        n_exceeding = sum(f >= obs), p_value = pv,
-                       p_value_auto_broken = pv_auto),
+                       p_value_prior_statistic = pv_auto),
             file.path(OUT_DIR, sprintf("permutation_summary_%s.csv", TAG)), row.names = FALSE)
 
   suppressWarnings(suppressMessages(library(ggplot2)))
@@ -331,7 +331,8 @@ if (identical(MODE, "verify")) {
       secs / 60, secs / N_PERM, N_CORES)
   say("  proyeccion 999 perms: %.2f h", secs / N_PERM * 999 / 3600)
 
-  say("\n--- NULA: AUROC_auto (el estadistico VIEJO — roto) ---")
+  say("")
+  say("--- NULA: AUROC_auto (el estadistico ANTERIOR, direction=auto) ---")
   say("  media %.4f | sd %.4f | rango [%.4f, %.4f] | validas %d/%d",
       mean(auto, na.rm = TRUE), sd(auto, na.rm = TRUE),
       min(auto, na.rm = TRUE), max(auto, na.rm = TRUE), sum(!is.na(auto)), N_PERM)
