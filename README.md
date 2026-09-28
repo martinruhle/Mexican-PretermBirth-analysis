@@ -522,7 +522,7 @@ platforms, and reproducing the real-cohort numbers requires the restricted abund
 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-Eight test files. Beyond unit tests of each engine function, three of them exist specifically to
+Nine test files. Beyond unit tests of each engine function, three of them exist specifically to
 keep the study's core guarantee honest:
 
 - `test-ancom-leakage.R` — ANCOM-BC2 taxa selection uses only the fold's training subjects.
@@ -535,7 +535,7 @@ keep the study's core guarantee honest:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-That is the full suite — 56 passing checks, no skips — and it is what CI runs. It takes around 20
+That is the full suite — 78 passing checks, no skips — and it is what CI runs. It takes around 20
 minutes, almost all of it in the end-to-end permutation test; without `PTB_RUN_SLOW_TESTS` the rest
 finishes in a couple of minutes.
 
