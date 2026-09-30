@@ -535,7 +535,7 @@ keep the study's core guarantee honest:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-That is the full suite — 78 passing checks, no skips — and it is what CI runs. It takes around 20
+That is the full suite — 91 passing checks, no skips — and it is what CI runs. It takes around 20
 minutes, almost all of it in the end-to-end permutation test; without `PTB_RUN_SLOW_TESTS` the rest
 finishes in a couple of minutes.
 
