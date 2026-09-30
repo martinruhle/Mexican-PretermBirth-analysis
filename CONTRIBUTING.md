@@ -49,7 +49,7 @@ request, run the full suite the way CI does:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-Expect **56 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
+Expect **91 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
 re-runs a reduced nested CV under 10 label permutations and accounted for ~17 of the 18.4 minutes in
 a recent local run. (The estimate in that file's header comment is out of date and much too
 optimistic.)
@@ -101,6 +101,38 @@ refactor.
    places (the model's outcome column, the stratification labels, and the metadata that ANCOM-BC2
    uses). Permuting fewer than all three contaminates the null — ANCOM keeps selecting taxa with
    the true labels, and the null comes out far too high.
+9. **Performance metrics are oriented towards preterm birth, fixed in advance.** AUROC is computed
+   with `pROC::roc(direction = "<")`: a higher predicted probability of preterm birth is the
+   positive call, which is also the rule used to classify the outer-test fold. PR-AUC is computed
+   with `event_level = "second"`, i.e. for the preterm class. Both live in `roc_ptb()` and
+   `prauc_ptb()` in `R/nested_cv.R`, and `tests/testthat/test-metrics.R` checks them on hand-worked
+   cases and checks that the values the engine reports are exactly theirs. The Youden threshold
+   search on the inner-validation split (`optimize_threshold_cv()` in `R/threshold.R`) builds its
+   ROC curve with the same `roc_ptb()`, so the sensitivity and specificity it optimises are those
+   of the rule applied to the outer-test fold; `tests/testthat/test-threshold.R` checks this on
+   validation sets where preterm subjects score lower. Please do not return to
+   `direction = "auto"`, for these reasons:
+   - pROC's own documentation (`?roc`, argument `direction`) advises setting the direction
+     explicitly "whenever you are resampling or randomizing the data, otherwise the curves will be
+     biased towards higher AUC values" (Robin et al., *BMC Bioinformatics* 12:77, 2011). Nested
+     cross-validation resamples, and the permutation test randomises the labels.
+   - `"auto"` chooses the orientation by comparing the class medians of the data it receives.
+     Applied to an outer-test fold, that is a decision taken on the evaluation labels (invariant 1).
+   - With `"auto"`, a fold in which the model ranks preterm births *below* term births is reported
+     as if the ranking were the other way round. With a fixed orientation that fold contributes an
+     AUROC below 0.5, which is the information the metric exists to carry.
+   - In the threshold search, `"auto"` orients the inner-validation curve from the class medians.
+     When preterm subjects score lower there, the curve is oriented the other way (positive when
+     the score is *at or below* the threshold), so the Youden optimum belongs to the opposite rule;
+     since the engine applies `pred_prob >= threshold`, the threshold selected was the operating
+     point with the *lowest* Youden J for the rule actually used. This happened in 27 of the 60
+     outer folds of the 12 combinations before the threshold search was given the fixed
+     orientation.
+
+   PR-AUC uses the preterm class because it is the outcome of interest and the minority class, and
+   its prevalence is the reference line of the curve. With the default first-level event the value
+   described the term class while scoring P(preterm), so it moved in the opposite direction to the
+   discrimination of preterm births.
 
 ---
 
@@ -189,11 +221,6 @@ separate pull requests.
 - **The pipeline prints `12 arguments not used by format` warnings** — a `sprintf` call in the
   completeness helper inside the analysis `.Rmd` whose format string needs consolidating. It affects
   the log only, not results.
-- **AUROC uses `pROC`'s automatic orientation** in the engine (`R/nested_cv.R`, `R/threshold.R`).
-  Immaterial with real signal, but it raises the AUROC of *random* labels above 0.5, which is why
-  the end-to-end permutation test asserts strictly on balanced accuracy and only loosely on AUROC.
-  Fixing the orientation would let that guard be tightened — but it is a results-affecting change,
-  so it needs the baseline comparison above.
 - **Alphanumeric subject/sample ids are not yet supported by the PCA figure**, and the exploratory
   zero replacement needs each taxon present in at least 2 samples. Both are documented under
   [Known reusability limits](README.md#known-reusability-limits).

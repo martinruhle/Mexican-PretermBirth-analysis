@@ -18,7 +18,7 @@ default:
     # Rutas relativas al root (usar here::here()); NUNCA setwd(). Los datos reales viven
     # FUERA de git (data/raw/ esta gitignored): hay que copiarlos ahi antes de correr.
     matrix_path:      "data/raw/genus_rel_filtered_2025-05-25.csv"      # [codigo L604] matriz ancha: 97 taxa (rel) + index + id + 68 clinicas
-    abs_matrix_path:  "data/raw/genus_rel_filtered_2025-05-25_abs.csv"  # [codigo][datos] conteos absolutos (97 taxa) — REQUERIDO por ANCOM-BC2.
+    abs_matrix_path:  "data/raw/genus_abs_2026-09-20.csv"               # [codigo][datos] conteos absolutos (97 taxa) — REQUERIDO por ANCOM-BC2.
     #   Chat 3: io.R::load_abs_matrix() lo lee por NOMBRE con check.names=FALSE. El viejo
     #   read.csv(row.names=98) mangleaba 'Escherichia-Shigella'->'Escherichia.Shigella' y lo
     #   dropeaba silenciosamente del pool ANCOM (48 vs 49 taxa). Fix aceptado -> re-baseline
