@@ -49,7 +49,7 @@ request, run the full suite the way CI does:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-Expect **91 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
+Expect **106 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
 re-runs a reduced nested CV under 10 label permutations and accounted for ~17 of the 18.4 minutes in
 a recent local run. (The estimate in that file's header comment is out of date and much too
 optimistic.)

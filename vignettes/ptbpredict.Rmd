@@ -324,8 +324,11 @@ mylab:
 
 **2. Fill in `config/data_dictionary.csv`** — one row per column of your matrix, with `role` set to
 `microbiome` for taxa and `clinical` for everything else, plus the `subject_id`, `sample_id`,
-`outcome` and `gestational_age` keys. Every `role = microbiome` variable must exist, spelled
-identically, in both the relative-abundance and the count matrix.
+`outcome` and `gestational_age` keys (variables the pipeline creates itself have
+`role = clinical_derived`). Every `role = microbiome` variable must exist, spelled identically, in
+both the relative-abundance and the count matrix. Record in `availability` when each value is known
+relative to the sample visit (`at_visit`, `after_visit`, `outcome_defined`), with the evidence in
+`availability_source`; the rules are in `docs/CLINICAL_VARIABLE_AVAILABILITY.md`.
 
 Then:
 
