@@ -15,6 +15,9 @@
 #     yardstick default (first level = term). Both live in roc_ptb()/prauc_ptb();
 #     the stored ROC curve is the same object as the AUROC. Rationale in their
 #     roxygen blocks.
+#   * clinical predictors by availability (2026-10): train_with_nested_cv()
+#     takes the data dictionary and the admitted availability classes, and
+#     restricts the clinical table before the fold loop (R/availability.R).
 #
 # ✓ RESOLVED in Chat 3 (now explicit arguments of train_with_nested_cv()):
 #     - `genera_clean`   contaminant-filtered genus list -> `genera_clean` argument.
@@ -144,6 +147,14 @@ prauc_ptb <- function(truth, score) {
 #'   levels from [fit_clr_zerorepl()], learned once on the full microbiome and
 #'   passed to every [apply_clr_transform()] call (threaded in explicitly rather
 #'   than read from a global).
+#' @param dict Data dictionary (from [read_data_dictionary()]); its
+#'   `availability` column gives the class of every clinical variable.
+#' @param allowed_availability Character vector of the availability classes
+#'   admitted as predictors (from [resolve_availability()]). For Approach 3 the
+#'   screening pool is restricted to these classes before the fold loop; for
+#'   Approaches 1 and 2 the variable list is already final, so a variable of
+#'   another class is an error (see [restrict_to_availability()]). The final
+#'   model on the full data uses the same restricted table.
 #' @param genera_clean Character vector of contaminant-filtered genus names
 #'   (post prevalence + decontaminant filter). Required when
 #'   `microbiome_option == "ANCOM_Taxa"`; the ANCOM OTU table is restricted to
@@ -156,7 +167,9 @@ prauc_ptb <- function(truth, score) {
 #'   recipe. Default `FALSE`.
 #'
 #' @return A named list with `model_name`, `approach`, `microbiome`,
-#'   `fold_results`, `summary`, and (when available) `test_predictions`,
+#'   `fold_results`, `summary`, `availability` (`allowed` classes, the
+#'   `clinical_variables` the approach could use, and the `excluded` variables
+#'   with their class), and (when available) `test_predictions`,
 #'   `roc_curves`, `pr_curves`, `selected_variables`, `selected_taxa` and
 #'   `final_model`; or `NULL` if no fold produced results. `test_predictions` holds
 #'   the subject-level out-of-fold predictions (`fold`, `id`, `pred_prob`,
@@ -168,6 +181,7 @@ train_with_nested_cv <- function(model_name, model_spec,
                                   clinical_data_all, microbiome_data_all,
                                   approach_name, microbiome_option,
                                   cv_folds, clr_zero_levels,
+                                  dict, allowed_availability,
                                   genera_clean = NULL, abs_data = NULL,
                                   use_pca = FALSE) {
 
@@ -175,6 +189,27 @@ train_with_nested_cv <- function(model_name, model_spec,
   cat(sprintf("MODEL: %s | %s | %s\n",
               model_name, approach_name, microbiome_option))
   cat(sprintf("========================================\n"))
+
+  # Clinical predictors by availability class (data dictionary, column
+  # `availability`). Approach 3 screens a pool inside the folds, so the pool is
+  # restricted here, before any fold sees it; Approaches 1 and 2 arrive with a
+  # final list, which must already be admissible. Everything below (screening,
+  # fold models, final model) uses this restricted table.
+  availability_restriction <- restrict_to_availability(
+    clinical_data_all, dict, allowed_availability,
+    keys = c("index", "id", "preterm"),
+    action = if (approach_name == "Approach3_DataDriven") "drop" else "error")
+  clinical_data_all <- availability_restriction$data
+
+  cat(sprintf("  Availability classes admitted: %s\n",
+              paste(allowed_availability, collapse = ", ")))
+  if (nrow(availability_restriction$excluded) > 0) {
+    cat(sprintf("  Excluded from the clinical pool (%d): %s\n",
+                nrow(availability_restriction$excluded),
+                paste(sprintf("%s [%s]", availability_restriction$excluded$variable,
+                              availability_restriction$excluded$availability),
+                      collapse = ", ")))
+  }
 
   # Store results from each fold
   fold_results <- list()
@@ -913,7 +948,12 @@ train_with_nested_cv <- function(model_name, model_spec,
     approach = approach_name,
     microbiome = microbiome_option,
     fold_results = fold_results_df,
-    summary = summary_results
+    summary = summary_results,
+    availability = list(
+      allowed = allowed_availability,
+      clinical_variables = setdiff(names(clinical_data_all), c("index", "id", "preterm")),
+      excluded = availability_restriction$excluded
+    )
   )
 
   # Add subject-level out-of-fold test predictions (ADDITIVE; see above)

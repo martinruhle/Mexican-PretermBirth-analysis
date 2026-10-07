@@ -237,6 +237,8 @@ result <- train_with_nested_cv(
   microbiome_option   = "ANCOM_Taxa",
   cv_folds            = cv_folds,
   clr_zero_levels     = zero_levels,
+  dict                = read_data_dictionary(cfg),
+  allowed_availability = resolve_availability(cfg),  # "at_visit"
   genera_clean        = genera_clean,          # ANCOM_Taxa branch
   abs_data            = load_abs_matrix(cfg)   # ANCOM_Taxa branch: counts
 )
@@ -253,6 +255,14 @@ result$test_predictions      # subject-level out-of-fold predictions
 > and flagged in the source. Until they are extracted, the supported way to run Approach 3 is
 > through `analysis/integrated_preterm_prediction_workflow.Rmd` (or
 > `scripts/run_baseline.R`, which renders it). Approaches 1 and 2 need only `subject_labels`.
+
+`dict` and `allowed_availability` decide which clinical variables may enter the model: only those
+whose `availability` class in the dictionary is admitted (`config.yml`,
+`clinical_availability$allowed`; the environment variable `PTB_AVAILABILITY` overrides it, e.g.
+`at_visit,after_visit` for a sensitivity analysis). The Approach 3 pool is restricted before the
+folds; an Approach 1 or 2 list that contains a variable of another class stops the call, because the
+list must be chosen from admitted candidates in the first place (the analysis document does this
+with `admissible_variables()`).
 
 `result$test_predictions` is worth knowing about: it holds the out-of-fold predicted probabilities
 at subject level, so alternative metrics can be computed from a finished run without re-training
@@ -328,7 +338,9 @@ mylab:
 `role = clinical_derived`). Every `role = microbiome` variable must exist, spelled identically, in
 both the relative-abundance and the count matrix. Record in `availability` when each value is known
 relative to the sample visit (`at_visit`, `after_visit`, `outcome_defined`), with the evidence in
-`availability_source`; the rules are in `docs/CLINICAL_VARIABLE_AVAILABILITY.md`.
+`availability_source`; the rules are in `docs/CLINICAL_VARIABLE_AVAILABILITY.md`. Only the classes
+listed in `clinical_availability$allowed` (`at_visit` by default) can enter a model, so a clinical
+variable without a dictionary row stops the run instead of being used with an unknown class.
 
 Then:
 

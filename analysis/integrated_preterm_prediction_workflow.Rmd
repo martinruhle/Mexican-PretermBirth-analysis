@@ -607,8 +607,17 @@ source(here::here("R", "io.R"),            local = TRUE)
 source(here::here("R", "data_contract.R"), local = TRUE)
 source(here::here("R", "models.R"),        local = TRUE)   # Chat 4: build_model_specs()
 source(here::here("R", "plots.R"),         local = TRUE, encoding = "UTF-8")  # Chat 6: build_*() figuras (labels con ±, ≥)
+source(here::here("R", "availability.R"),  local = TRUE)   # clases de disponibilidad de las variables clínicas
 
 cfg <- read_config()   # PTB_PROFILE (default = "default")
+
+# Clases de disponibilidad admitidas como predictores clínicos (columna `availability`
+# del diccionario): config clinical_availability$allowed, o PTB_AVAILABILITY para el
+# análisis de sensibilidad. Las usan approach2_setup (candidatos) y el motor (pool del
+# Approach 3 y verificación de las listas fijas).
+dict                 <- read_data_dictionary(cfg)
+availability_allowed <- resolve_availability(cfg)
+cat("Clinical availability classes admitted:", paste(availability_allowed, collapse = ", "), "\n\n")
 
 # Load datasets from config paths (matrix_path / metadata_path / participant_path).
 datasets      <- load_dataset(cfg)
@@ -1748,6 +1757,22 @@ approach2_candidates <- bind_rows(
   a2_entries_to_rows(a2_cfg$candidates)   # 15 candidatos de literatura, en orden de config
 )
 
+# Solo candidatos de una clase de disponibilidad admitida (columna `availability` del
+# diccionario). Se filtra ANTES de la selección para que los lugares de la lista final
+# se completen con otros candidatos; el motor rechaza una lista final con variables no
+# admitidas.
+approach2_excluded <- approach2_candidates %>%
+  filter(!variable %in% admissible_variables(dict, availability_allowed)) %>%
+  mutate(availability = dict$availability[match(variable, dict$variable)])
+approach2_candidates <- approach2_candidates %>%
+  filter(variable %in% admissible_variables(dict, availability_allowed))
+
+if (nrow(approach2_excluded) > 0) {
+  cat("Candidates excluded by availability class:",
+      paste(sprintf("%s [%s]", approach2_excluded$variable, approach2_excluded$availability),
+            collapse = ", "), "\n\n")
+}
+
 # Extract variable names
 approach2_candidate_vars <- approach2_candidates$variable
 
@@ -2008,9 +2033,11 @@ calculate_univariate_association <- function(var_name, data) {
 }
 
 # Show top univariate associations on FULL dataset (demonstration only)
+# Same pool the engine screens: only variables of an admitted availability class.
 candidate_vars <- clinical_approach3_base %>%
   select(-index, -id, -preterm) %>%
-  names()
+  names() %>%
+  intersect(admissible_variables(dict, availability_allowed))
 
 cat("Calculating univariate associations on full dataset (for reference)...\n")
 demo_results <- tibble(variable = candidate_vars) %>%
@@ -2574,6 +2601,8 @@ during model training. Key steps:
 #   R/threshold.R          optimize_threshold_cv()
 #   R/feature_selection.R  run_ancombc_on_fold()
 #   R/nested_cv.R          detect_prob_col(), train_with_nested_cv()
+# (R/availability.R, que el motor usa para restringir las variables clínicas por
+# clase de disponibilidad, se carga antes, en el chunk load_data.)
 # El objeto clr_zero_levels se computa una vez en el chunk run_nested_cv y se
 # pasa por argumento a train_with_nested_cv() (ya no es un default global).
 # ============================================================================
@@ -2739,6 +2768,8 @@ cat(
         microbiome_option = microbiome$name,
         cv_folds = cv_folds,
         clr_zero_levels = clr_zero_levels,   # threaded in (was a global default in apply_clr_transform)
+        dict = dict,                                  # columna availability del diccionario
+        allowed_availability = availability_allowed,  # clases admitidas (chunk load_data)
         genera_clean = genera_clean,         # Chat 3: era global (chunk decontaminant_filter)
         abs_data = abs_data,                 # Chat 3: era ruta absoluta + indexado posicional
         use_pca = model$pca

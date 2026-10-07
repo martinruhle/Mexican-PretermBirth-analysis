@@ -161,6 +161,8 @@ run_target <- function(perm_seed = NULL, keep_full = FALSE) {
       clinical_data_all = clin, microbiome_data_all = get("micro_genus_full", g),
       approach_name = TARGET$approach, microbiome_option = TARGET$microbiome,
       cv_folds = get("cv_folds", g), clr_zero_levels = get("clr_zero_levels", g),
+      dict = get("dict", g),                                    # chunk load_data
+      allowed_availability = get("availability_allowed", g),    # chunk load_data
       genera_clean = get("genera_clean", g), abs_data = abs_d),
     error = function(e) { message("perm failed: ", conditionMessage(e)); NULL })
 

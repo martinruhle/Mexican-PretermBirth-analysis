@@ -49,7 +49,7 @@ request, run the full suite the way CI does:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-Expect **106 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
+Expect **131 passes, 0 failures, 0 skips**. Budget around 20 minutes: `test-leakage-permutation.R`
 re-runs a reduced nested CV under 10 label permutations and accounted for ~17 of the 18.4 minutes in
 a recent local run. (The estimate in that file's header comment is out of date and much too
 optimistic.)
@@ -133,6 +133,20 @@ refactor.
    its prevalence is the reference line of the curve. With the default first-level event the value
    described the term class while scoring P(preterm), so it moved in the opposite direction to the
    discrimination of preterm births.
+10. **Only clinical variables known at the sample visit enter a model.** Every clinical variable
+    has an `availability` class in `config/data_dictionary.csv` (`at_visit`, `after_visit` or
+    `outcome_defined`; the rules are in `docs/CLINICAL_VARIABLE_AVAILABILITY.md`), and the classes
+    admitted as predictors are a parameter: `clinical_availability$allowed` in `config/config.yml`
+    (`at_visit`), overridden by the environment variable `PTB_AVAILABILITY` for the sensitivity
+    analysis. `train_with_nested_cv()` receives the dictionary and the admitted classes as
+    arguments. It restricts the Approach 3 screening pool before the fold loop, and it stops if an
+    Approach 1 or 2 list contains a variable of another class: those lists are final, so they must
+    be chosen from admitted candidates, which the analysis notebook does before the Approach 2
+    selection. A clinical variable without a dictionary row also stops the run. The functions are
+    in `R/availability.R`; `tests/testthat/test-availability.R` checks the pool the screening
+    receives and that a fixed list with a variable of another class is rejected. When you add a
+    clinical or derived variable, add its dictionary row with its class and evidence. Do not admit
+    `outcome_defined`: those variables are defined by the delivery itself.
 
 ---
 

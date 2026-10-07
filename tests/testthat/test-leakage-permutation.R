@@ -67,6 +67,7 @@ test_that("permuted subject labels collapse the reduced pipeline to chance (end-
 
   abs_data    <- load_abs_matrix(cfg)
   glmnet_spec <- build_model_specs(cfg)$glmnet_base
+  dict        <- read_data_dictionary(cfg)
 
   # train_with_nested_cv() reads `subject_labels` from the global env (a known
   # engine global-dep, flagged in R/nested_cv.R). Provide it per permutation and
@@ -101,6 +102,7 @@ test_that("permuted subject labels collapse the reduced pipeline to chance (end-
       clinical_data_all = clin_perm, microbiome_data_all = micro_genus_full,
       approach_name = "Approach1_DREAM", microbiome_option = "ANCOM_Taxa",
       cv_folds = cv_folds, clr_zero_levels = clr_zero_levels,
+      dict = dict, allowed_availability = "at_visit",
       genera_clean = genera_clean, abs_data = abs_perm)
 
     c(auroc  = as.numeric(res$summary$AUROC_mean),

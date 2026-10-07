@@ -116,7 +116,8 @@ test_that("train_with_nested_cv reports roc_ptb / prauc_ptb and stores the match
     model_name = "glmnet_base", model_spec = build_model_specs(cfg)$glmnet_base,
     clinical_data_all = clinical_approach1, microbiome_data_all = micro_genus_full,
     approach_name = "Approach1_DREAM", microbiome_option = "Full_Microbiome",
-    cv_folds = cv_folds, clr_zero_levels = clr_zero_levels)))
+    cv_folds = cv_folds, clr_zero_levels = clr_zero_levels,
+    dict = read_data_dictionary(cfg), allowed_availability = "at_visit")))
 
   expect_false(is.null(res))
   fr <- res$fold_results

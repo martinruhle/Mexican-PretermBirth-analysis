@@ -89,6 +89,16 @@ default:
       completeness_samples_min:  0.70  # [codigo L3273]
       collinearity_cutoff: 0.95        # [codigo L3319]
 
+  clinical_availability:
+    # Clases de la columna `availability` de config/data_dictionary.csv admitidas como
+    # predictores clinicos (reglas: docs/CLINICAL_VARIABLE_AVAILABILITY.md). El motor las
+    # recibe como argumento (train_with_nested_cv(allowed_availability = ...)): el pool del
+    # Approach 3 se restringe antes de los folds y los candidatos del Approach 2 antes de su
+    # seleccion (chunk approach2_setup). Analisis principal: solo at_visit. El de
+    # sensibilidad se corre con el mismo perfil y PTB_AVAILABILITY=at_visit,after_visit.
+    # outcome_defined no entra en ninguno de los dos.
+    allowed: ["at_visit"]
+
   preprocessing:
     # CLR — RESUELTO (2026-07-21, task_bd97ada6). Transformacion composicional POR MUESTRA:
     # cada muestra se cierra por la media geometrica de sus propios taxa (rows sum 0); row-local =>

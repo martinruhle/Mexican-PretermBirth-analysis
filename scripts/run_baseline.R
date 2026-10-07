@@ -18,6 +18,10 @@
 #   RENV_CONFIG_AUTOLOADER_ENABLED=FALSE R_PROFILE_USER=/dev/null \
 #     "/c/Program Files/R/R-4.4.2/bin/Rscript.exe" scripts/run_baseline.R
 #
+# CLASES DE DISPONIBILIDAD: las variables clinicas admitidas salen de config
+# clinical_availability$allowed (at_visit). PTB_AVAILABILITY las reemplaza para una corrida,
+# p.ej. el analisis de sensibilidad:  PTB_AVAILABILITY=at_visit,after_visit PTB_RUN_TAG=...
+#
 # REQUISITO (post Chat 3): los datos reales copiados a data/raw/ (gitignored), con los
 # nombres que declara config/config.yml (matrix_path/abs_matrix_path/metadata_path). El
 # .Rmd ya NO usa setwd() ni rutas absolutas: lee de config vía io.R::load_dataset().
@@ -129,7 +133,7 @@ if (exists("cv_results_all", envir = render_env)) {
                      row.names = FALSE)
   }
   keep <- c("model_name", "approach", "microbiome", "fold_results", "summary",
-            "test_predictions", "selected_taxa", "selected_variables")
+            "test_predictions", "selected_taxa", "selected_variables", "availability")
   saveRDS(lapply(cv_results_all, function(r) if (is.null(r)) NULL else r[intersect(keep, names(r))]),
           file.path(outdir, paste0(tag, "_cv_folds.rds")))
   message(sprintf(">> Seleccion por fold guardada en %s_ancom_taxa_by_fold.csv y %s_cv_folds.rds",
