@@ -1,17 +1,19 @@
 # Clinical variable availability relative to sample collection
 
-**Last updated:** 2026-10-06
+**Last updated:** 2026-10-07
 
 A prediction made at a prenatal visit can only use information that exists at that visit. This
 document classifies every clinical variable in
 [`config/data_dictionary.csv`](../config/data_dictionary.csv) by **when its value is known relative
 to the visit at which the vaginal sample was taken**, records the evidence for each classification,
-and lists the variables used by the current models that are **not** known at the visit, with the
-number of cross-validation folds in which each one entered a model.
+and lists the variables used by the models before this classification that are **not** known at the
+visit, with the number of cross-validation folds in which each one entered a model.
 
-This document changes no result. The classification is the input for re-running the 12
-combinations with visit-time variables only; that re-run will be reported separately, with the
-before/after table. The re-run uses two variable sets:
+The pipeline now reads the classification: only the classes listed under
+`clinical_availability$allowed` in [`config/config.yml`](../config/config.yml) can enter a model.
+The re-run of the 12 combinations with visit-time variables only, with the before/after table, is
+reported in [`CLINICAL_AVAILABILITY_RESULTS.md`](CLINICAL_AVAILABILITY_RESULTS.md). The re-run uses
+two variable sets:
 
 - **Main analysis:** `at_visit` variables only.
 - **Sensitivity analysis:** `at_visit` plus `after_visit` variables, to measure how much of the
@@ -129,9 +131,9 @@ variables before the completeness filter.
 | `after_visit` (6) | `comppreeclam`, `compvaginf`, `diabetes_gest`, `oligohidramnios`, `rciu`, `sex_baby` |
 | `outcome_defined` (5) | `rpm`, `rpm_preterm`, and the derived `complication_count`, `any_complication`, `multiple_complications` (their inputs include `rpm` and `rpm_preterm`) |
 
-## 5. Variables that are not known at the visit, and how often the current models used them
+## 5. Variables that are not known at the visit, and how often the earlier models used them
 
-Counts come from the current baseline run (engine at commit `ac9af7a`). The Approach 2 variable list
+Counts come from the baseline run before this restriction (engine at commit `ac9af7a`). The Approach 2 variable list
 is fixed and is the same in all 5 outer folds; Approach 3 selects its variables in each outer fold,
 and the selection is identical in its four combinations (2 models × 2 microbiome inputs).
 
