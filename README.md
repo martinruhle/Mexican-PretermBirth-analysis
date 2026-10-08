@@ -156,6 +156,14 @@ re-running it (≈3.6 h on 8 cores).
   analysis are in [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md),
   and the classification of every variable in
   [`docs/CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md).
+- **Number of samples per participant.** Preterm participants contribute fewer samples, because
+  their pregnancies end earlier, so the number of samples alone discriminates the outcome: AUROC
+  0.771 ± 0.160 on the same outer folds, above the mean AUROC of every model combination run with
+  clinical variables known at the visit (best 0.758 ± 0.240). Counting only the samples taken before
+  week 24, 28 or 32, among the participants still pregnant at that week, it falls to 0.62–0.66. The
+  total count is known only once sampling ends, so it is a reference rather than a usable
+  predictor; whether the models depend on the same sampling pattern has not been measured. Details
+  in [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md).
 - **AUROC orientation.** The pipeline reports AUROC computed with `pROC`'s automatic orientation.
   For the reported model this was verified fold by fold to be identical to a fixed orientation
   (0.760 either way); it has not yet been examined for the other 11 combinations. The permutation
@@ -383,6 +391,7 @@ return value — read them in the source files below.
 | [`generate_example_data.R`](scripts/generate_example_data.R) | Regenerates `data/example/` from a fixed seed. Taxa names and column roles come from `config/data_dictionary.csv`, never hardcoded. |
 | [`check_variable_availability.R`](scripts/check_variable_availability.R) | Recomputes from the cohort data the evidence behind the dictionary's `availability` column, and counts in how many folds of a saved run each variable not known at the visit entered a model. |
 | [`compare_availability_runs.R`](scripts/compare_availability_runs.R) | Compares three runs that differ only in the admitted availability classes (all, `at_visit`, `at_visit` + `after_visit`): checks that they share folds and ANCOM-BC2 selections, and prints the tables of [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md). |
+| [`sample_count_reference.R`](scripts/sample_count_reference.R) | AUROC of the number of samples per participant on the models' outer folds, with all samples and with the samples taken before weeks 24, 28 and 32 among the participants who reached them; prints the tables of [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md). |
 | [`sensitivity_nonindependence_weight.R`](scripts/sensitivity_nonindependence_weight.R) | Sensitivity analysis weighting samples by the inverse number of visits per subject. Note: still written against an earlier version of the engine's function signatures, so it needs updating before it will run; see [`CONTRIBUTING.md`](CONTRIBUTING.md). |
 
 ### `config/`
@@ -402,6 +411,9 @@ return value — read them in the source files below.
   and the clinical variables used, per fold, with all availability classes, with `at_visit` only
   (main analysis) and with `at_visit` + `after_visit` (sensitivity analysis). Described in
   [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md).
+- **[`sample_count_reference/`](results/sample_count_reference/)** — AUROC of the number of samples
+  per participant, by outer fold and overall, with all samples and within the weeks before 24, 28
+  and 32. Described in [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md).
 - **[`published_version/`](results/published_version/)** — the rendered report and figures from
   before these updates. **Archived, superseded** — kept so the published state stays
   inspectable. Please cite the current results instead.
@@ -415,6 +427,7 @@ return value — read them in the source files below.
 | [`DATA_ACCESS.md`](docs/DATA_ACCESS.md) | How to request the restricted data |
 | [`CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md) | When each clinical variable is known relative to sample collection, and which variables not known at the visit the earlier models used |
 | [`CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md) | The 12 combinations with clinical variables known at the visit only, before and after, the sensitivity analysis that adds the variables known after the visit, and which variables left each approach |
+| [`SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md) | How well the number of samples per participant alone discriminates the outcome on the models' folds, and how much of it remains within the weeks in which every participant was still pregnant |
 
 ---
 
