@@ -8,14 +8,19 @@
 # unificado a 123. Ese numero es la "verdad" contra la que se compara tras cada fase.
 #
 # QUE HACE: renderiza el .Rmd tal cual y guarda el HTML en analysis/_output/. El HTML
-# incluye la tabla de las 12 combinaciones (chunk `cv_results_table`). Tarda ~2.5-3 h
-# (corre el nested CV completo + ANCOM-BC2 por fold).
+# incluye la tabla de las 12 combinaciones (chunk `cv_results_table`). Corre el nested CV
+# completo + ANCOM-BC2 por fold: ~5-7 min con los datos reales y ~12 min con el perfil
+# example (medido en Windows 11, R 4.4.2, renv activo).
 #
 # COMO CORRERLO (renv aun NO esta restaurado; hay que saltarlo para usar la libreria
 # base de R, donde SI estan tidymodels/ranger/glmnet/ANCOMBC/zCompositions/...):
 #
 #   RENV_CONFIG_AUTOLOADER_ENABLED=FALSE R_PROFILE_USER=/dev/null \
 #     "/c/Program Files/R/R-4.4.2/bin/Rscript.exe" scripts/run_baseline.R
+#
+# CLASES DE DISPONIBILIDAD: las variables clinicas admitidas salen de config
+# clinical_availability$allowed (at_visit). PTB_AVAILABILITY las reemplaza para una corrida,
+# p.ej. el analisis de sensibilidad:  PTB_AVAILABILITY=at_visit,after_visit PTB_RUN_TAG=...
 #
 # REQUISITO (post Chat 3): los datos reales copiados a data/raw/ (gitignored), con los
 # nombres que declara config/config.yml (matrix_path/abs_matrix_path/metadata_path). El
@@ -108,6 +113,31 @@ if (exists("cv_results_all", envir = render_env)) {
   saveRDS(lapply(cv_results_all, function(r) if (is.null(r)) NULL else r$summary),
           file.path(outdir, paste0(tag, "_cv_summary.rds")))
   message(sprintf(">> Metricas de %d combinaciones guardadas en %s", nrow(metrics), csv_path))
+
+  # -- Persistir tambien lo que se decidio DENTRO de cada fold. El motor ya lo devuelve por
+  #    combinacion (`selected_taxa`: taxa de ANCOM-BC2 por fold, en orden de p ascendente;
+  #    `selected_variables`: screening clinico de Approach 3; `test_predictions`: predicciones
+  #    out-of-fold por sujeto), pero hasta ahora solo se guardaba `summary` y la seleccion
+  #    quedaba unicamente impresa en el HTML. Solo lee cv_results_all: no altera el computo. ----
+  ancom_taxa <- do.call(rbind, lapply(cv_results_all, function(res) {
+    st <- if (is.null(res)) NULL else res$selected_taxa
+    if (is.null(st) || nrow(st) == 0) return(NULL)
+    data.frame(
+      Model = res$model_name, Approach = res$approach, Microbiome = res$microbiome,
+      fold = st$fold, rank = stats::ave(seq_along(st$fold), st$fold, FUN = seq_along),
+      taxon = st$taxon, stringsAsFactors = FALSE
+    )
+  }))
+  if (!is.null(ancom_taxa)) {
+    utils::write.csv(ancom_taxa, file.path(outdir, paste0(tag, "_ancom_taxa_by_fold.csv")),
+                     row.names = FALSE)
+  }
+  keep <- c("model_name", "approach", "microbiome", "fold_results", "summary",
+            "test_predictions", "selected_taxa", "selected_variables", "availability")
+  saveRDS(lapply(cv_results_all, function(r) if (is.null(r)) NULL else r[intersect(keep, names(r))]),
+          file.path(outdir, paste0(tag, "_cv_folds.rds")))
+  message(sprintf(">> Seleccion por fold guardada en %s_ancom_taxa_by_fold.csv y %s_cv_folds.rds",
+                  tag, tag))
 } else {
   warning("cv_results_all no existe en el entorno de render; no se guardo la tabla de metricas.")
 }

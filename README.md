@@ -145,6 +145,25 @@ re-running it (≈3.6 h on 8 cores).
   deviations above. Differences between mid-table combinations should not be over-interpreted.
 - **Exploratory, not clinically validated.** No external validation cohort. The results are
   hypothesis-generating.
+- **Clinical variables known only after the sample.** The models behind the results table above
+  could draw on clinical variables whose value is not known at the visit when the sample is taken:
+  rupture of membranes after week 37 (which implies a term delivery), preeclampsia and
+  oligohydramnios in the Approach 2 list, and undated complications and derived complication counts
+  in the Approach 3 selection. Eight of the 12 combinations used at least one such variable in every
+  outer fold; Approach 1 uses none. The pipeline now admits only variables known at the visit.
+  Re-run that way, no approach loses mean AUROC and the best combination stays the same; adding back
+  the variables known only after the visit lowers it. The before/after tables and the sensitivity
+  analysis are in [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md),
+  and the classification of every variable in
+  [`docs/CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md).
+- **Number of samples per participant.** Preterm participants contribute fewer samples, because
+  their pregnancies end earlier, so the number of samples alone discriminates the outcome: AUROC
+  0.771 ± 0.160 on the same outer folds, above the mean AUROC of every model combination run with
+  clinical variables known at the visit (best 0.758 ± 0.240). Counting only the samples taken before
+  week 24, 28 or 32, among the participants still pregnant at that week, it falls to 0.62–0.66. The
+  total count is known only once sampling ends, so it is a reference rather than a usable
+  predictor; whether the models depend on the same sampling pattern has not been measured. Details
+  in [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md).
 - **AUROC orientation.** The pipeline reports AUROC computed with `pROC`'s automatic orientation.
   For the reported model this was verified fold by fold to be identical to a fixed orientation
   (0.760 either way); it has not yet been examined for the other 11 combinations. The permutation
@@ -260,22 +279,35 @@ with `PTB_PROFILE=mylab`.
 
 This file is the **single source of truth for which columns are microbiome and which are
 clinical**. There is no positional indexing and no name-prefix regex anywhere in the pipeline.
-One row per column of your matrix:
+One row per column of your matrix, plus one per variable the pipeline derives:
 
 ```csv
-variable,role,type,unit,required,description
-id,subject_id,character,,yes,Subject identifier
-index,sample_id,character,,yes,Longitudinal sample identifier
-preterm,outcome,factor,0/1,yes,Preterm birth; positive level = 1
-sdg_parto,gestational_age,numeric,weeks,yes,Gestational age at delivery
-Lactobacillus,microbiome,numeric,relative_abundance,yes,Genus-level relative abundance
-edad_cronologicamujer,clinical,numeric,years,yes,Maternal age
+variable,role,type,unit,required,description,availability,availability_source,derived_from
+id,subject_id,character,,yes,Subject identifier,at_visit,Subject identifier,
+index,sample_id,character,,yes,Longitudinal sample identifier,at_visit,Identifier of the visit sample,
+preterm,outcome,factor,0/1,yes,Preterm birth; positive level = 1,outcome_defined,Defines the outcome,sdg_parto
+sdg_parto,gestational_age,numeric,weeks,yes,Gestational age at delivery,outcome_defined,Defines the outcome,
+Lactobacillus,microbiome,numeric,relative_abundance,yes,Genus-level relative abundance,at_visit,Measured in the visit sample,
+edad_cronologicamujer,clinical,numeric,years,yes,Maternal age,at_visit,Recorded at enrolment,
+extreme_age,clinical_derived,numeric,0/1,no,Maternal age <20 or >=35,at_visit,Inherits from its input,edad_cronologicamujer
 ```
 
 Valid `role` values in use: `subject_id`, `sample_id`, `outcome`, `gestational_age`, `microbiome`,
-`clinical`. Every `role = microbiome` row must exist as a column in **both** the relative-abundance
-and the count matrix, spelled identically (hyphens and `f__`/`o__`/`c__`/`d__` prefixes included —
-they are read with `check.names = FALSE` precisely so they survive).
+`clinical`, and `clinical_derived` for the variables the pipeline creates itself (these are not
+columns of your matrix). Every `role = microbiome` row must exist as a column in **both** the
+relative-abundance and the count matrix, spelled identically (hyphens and `f__`/`o__`/`c__`/`d__`
+prefixes included — they are read with `check.names = FALSE` precisely so they survive).
+
+`availability` records when each value is known relative to the visit at which the sample was
+taken: `at_visit`, `after_visit` or `outcome_defined`. Only `at_visit` variables are valid
+predictors. `availability_source` gives the evidence for the class, and `derived_from` lists the
+inputs of a derived variable, which takes the latest class among them. The rules and the
+classification of this cohort's variables are in
+[`docs/CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md). The engine reads
+this column: only the classes listed under `clinical_availability$allowed` in `config.yml`
+(`at_visit`) can enter a model, and a clinical variable without a dictionary row stops the run.
+For a sensitivity analysis, set `PTB_AVAILABILITY` (e.g. `at_visit,after_visit`) instead of editing
+the config.
 
 ### 4. Check the contract before running
 
@@ -318,7 +350,7 @@ Mexican-PretermBirth-analysis/
 ├── results/               # versioned outputs
 ├── docs/                  # documentation
 ├── vignettes/             # narrative walkthrough of a full run
-├── DESCRIPTION, NAMESPACE # package metadata (34 exported functions)
+├── DESCRIPTION, NAMESPACE # package metadata (40 exported functions)
 ├── renv.lock, .Rprofile   # pinned dependencies
 └── .github/workflows/     # continuous integration
 ```
@@ -333,11 +365,12 @@ return value — read them in the source files below.
 |---|---|
 | [`io.R`](R/io.R) | Read the config profile (`read_config`), the data dictionary, and the input matrices (`load_dataset`, `load_abs_matrix`); split columns into microbiome and clinical domains **by name** (`split_domains`, `microbiome_columns`) |
 | [`data_contract.R`](R/data_contract.R) | `validate_input_data()` — the five contract checks described above |
+| [`availability.R`](R/availability.R) | Which clinical variables may enter a model: `resolve_availability()` reads the admitted classes (config or `PTB_AVAILABILITY`), `admissible_variables()` lists the dictionary variables of those classes, `restrict_to_availability()` removes the others from a pool or rejects a final list that contains them |
 | [`clr.R`](R/clr.R) | Compositional transform: `fit_clr_zerorepl()` learns per-taxon zero-replacement levels; `apply_clr_transform()` replaces zeros and applies a per-sample centred log-ratio |
 | [`feature_selection.R`](R/feature_selection.R) | `run_ancombc_on_fold()` — ANCOM-BC2 differential abundance on a fold's training subjects only |
 | [`threshold.R`](R/threshold.R) | `optimize_threshold_cv()` — Youden-optimal classification threshold from validation predictions |
 | [`models.R`](R/models.R) | `build_model_specs()` — builds the parsnip specs for the **active** models from `config$models` (ignores `models_future`) |
-| [`nested_cv.R`](R/nested_cv.R) | `train_with_nested_cv()` — the outer/inner loop for one combination: fold splitting, per-fold feature selection, recipe fitting, threshold selection, metrics, and out-of-fold predictions |
+| [`nested_cv.R`](R/nested_cv.R) | `train_with_nested_cv()` — the outer/inner loop for one combination: restriction of the clinical variables to the admitted availability classes, fold splitting, per-fold feature selection, recipe fitting, threshold selection, metrics, and out-of-fold predictions |
 | [`plots.R`](R/plots.R) | Every figure builder used by the report; each takes already-computed data and returns a ggplot object (no model is ever refitted to draw a plot) |
 
 ### `analysis/`
@@ -356,6 +389,9 @@ return value — read them in the source files below.
 | [`run_baseline.R`](scripts/run_baseline.R) | Renders the pipeline and additionally saves the 12 combinations as a numeric CSV, so two runs can be compared row by row. Honours `PTB_PROFILE` and `PTB_RUN_TAG`. This is the normal way to run the analysis. |
 | [`permutation_test.R`](scripts/permutation_test.R) | The permutation test, single implementation. Three modes via `PTB_PERM_MODE`: `verify` (observed value + per-fold table), `run` (null distribution, parallel), `report` (p-value, tables and figure from a saved null). |
 | [`generate_example_data.R`](scripts/generate_example_data.R) | Regenerates `data/example/` from a fixed seed. Taxa names and column roles come from `config/data_dictionary.csv`, never hardcoded. |
+| [`check_variable_availability.R`](scripts/check_variable_availability.R) | Recomputes from the cohort data the evidence behind the dictionary's `availability` column, and counts in how many folds of a saved run each variable not known at the visit entered a model. |
+| [`compare_availability_runs.R`](scripts/compare_availability_runs.R) | Compares three runs that differ only in the admitted availability classes (all, `at_visit`, `at_visit` + `after_visit`): checks that they share folds and ANCOM-BC2 selections, and prints the tables of [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md). |
+| [`sample_count_reference.R`](scripts/sample_count_reference.R) | AUROC of the number of samples per participant on the models' outer folds, with all samples and with the samples taken before weeks 24, 28 and 32 among the participants who reached them; prints the tables of [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md). |
 | [`sensitivity_nonindependence_weight.R`](scripts/sensitivity_nonindependence_weight.R) | Sensitivity analysis weighting samples by the inverse number of visits per subject. Note: still written against an earlier version of the engine's function signatures, so it needs updating before it will run; see [`CONTRIBUTING.md`](CONTRIBUTING.md). |
 
 ### `config/`
@@ -363,13 +399,21 @@ return value — read them in the source files below.
 - [`config.yml`](config/config.yml) — profiles (`default:` = the Mexican cohort, `example:` =
   synthetic). Holds every path, column name, approach definition, preprocessing parameter, CV
   setting and model hyperparameter, each annotated with where it was verified.
-- [`data_dictionary.csv`](config/data_dictionary.csv) — 167 variables with their `role`: 97
-  microbiome, 66 clinical, plus the subject/sample/outcome/gestational-age keys.
+- [`data_dictionary.csv`](config/data_dictionary.csv) — 178 variables with their `role` and
+  `availability`: 97 microbiome, 66 clinical, 11 clinical variables derived by the pipeline, plus the
+  subject/sample/outcome/gestational-age keys.
 
 ### `results/`
 
 - **[`permutation_test/`](results/permutation_test/)** — the permutation test artefacts and their
   own README. **Current.**
+- **[`clinical_availability/`](results/clinical_availability/)** — metrics of the 12 combinations
+  and the clinical variables used, per fold, with all availability classes, with `at_visit` only
+  (main analysis) and with `at_visit` + `after_visit` (sensitivity analysis). Described in
+  [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md).
+- **[`sample_count_reference/`](results/sample_count_reference/)** — AUROC of the number of samples
+  per participant, by outer fold and overall, with all samples and within the weeks before 24, 28
+  and 32. Described in [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md).
 - **[`published_version/`](results/published_version/)** — the rendered report and figures from
   before these updates. **Archived, superseded** — kept so the published state stays
   inspectable. Please cite the current results instead.
@@ -381,6 +425,9 @@ return value — read them in the source files below.
 | **[`UPDATE_SINCE_PUBLICATION.md`](docs/UPDATE_SINCE_PUBLICATION.md)** | **The changelog between the article and this repository. Start here if you came from the paper.** |
 | [`INSTALL.md`](docs/INSTALL.md) | Installation detail and troubleshooting |
 | [`DATA_ACCESS.md`](docs/DATA_ACCESS.md) | How to request the restricted data |
+| [`CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md) | When each clinical variable is known relative to sample collection, and which variables not known at the visit the earlier models used |
+| [`CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md) | The 12 combinations with clinical variables known at the visit only, before and after, the sensitivity analysis that adds the variables known after the visit, and which variables left each approach |
+| [`SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md) | How well the number of samples per participant alone discriminates the outcome on the models' folds, and how much of it remains within the weeks in which every participant was still pregnant |
 
 ---
 
@@ -522,10 +569,13 @@ platforms, and reproducing the real-cohort numbers requires the restricted abund
 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-Eight test files. Beyond unit tests of each engine function, three of them exist specifically to
-keep the study's core guarantee honest:
+Eleven test files. Beyond unit tests of each engine function, four of them exist specifically to
+keep the study's core guarantees honest:
 
 - `test-ancom-leakage.R` — ANCOM-BC2 taxa selection uses only the fold's training subjects.
+- `test-availability.R` — no clinical variable of a class that is not admitted (by default, any
+  variable not known at the sample visit) reaches a model: the Approach 3 screening pool holds only
+  admitted variables, and a fixed variable list containing another class is rejected.
 - `test-clr.R` — the CLR transform is row-local (perturbing other samples cannot change a given
   row) and scale-invariant.
 - `test-leakage-permutation.R` — end-to-end: with permuted labels, performance collapses to
@@ -535,7 +585,7 @@ keep the study's core guarantee honest:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-That is the full suite — 56 passing checks, no skips — and it is what CI runs. It takes around 20
+That is the full suite — 131 passing checks, no skips — and it is what CI runs. It takes around 20
 minutes, almost all of it in the end-to-end permutation test; without `PTB_RUN_SLOW_TESTS` the rest
 finishes in a couple of minutes.
 
