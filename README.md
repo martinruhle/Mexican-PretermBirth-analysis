@@ -159,7 +159,7 @@ re-running it (≈3.6 h on 8 cores).
 - **Number of samples per participant.** Preterm participants contribute fewer samples, because
   their pregnancies end earlier, so the number of samples alone discriminates the outcome: AUROC
   0.771 ± 0.160 on the same outer folds, above the mean AUROC of every model combination run with
-  clinical variables known at the visit (best 0.758 ± 0.240). Counting only the samples taken before
+  clinical variables known at the visit (best 0.738 ± 0.270). Counting only the samples taken before
   week 24, 28 or 32, among the participants still pregnant at that week, it falls to 0.62–0.66. The
   total count is known only once sampling ends, so it is a reference rather than a usable
   predictor; whether the models depend on the same sampling pattern has not been measured. Details
@@ -366,6 +366,7 @@ return value — read them in the source files below.
 | [`io.R`](R/io.R) | Read the config profile (`read_config`), the data dictionary, and the input matrices (`load_dataset`, `load_abs_matrix`); split columns into microbiome and clinical domains **by name** (`split_domains`, `microbiome_columns`) |
 | [`data_contract.R`](R/data_contract.R) | `validate_input_data()` — the five contract checks described above |
 | [`availability.R`](R/availability.R) | Which clinical variables may enter a model: `resolve_availability()` reads the admitted classes (config or `PTB_AVAILABILITY`), `admissible_variables()` lists the dictionary variables of those classes, `restrict_to_availability()` removes the others from a pool or rejects a final list that contains them |
+| [`clinical_features.R`](R/clinical_features.R) | `derive_ses_features()` — the socioeconomic indicators `low_education`, `unmarried` and `ses_risk_score`, reading the education code from text values such as `2.- Secondary education` |
 | [`clr.R`](R/clr.R) | Compositional transform: `fit_clr_zerorepl()` learns per-taxon zero-replacement levels; `apply_clr_transform()` replaces zeros and applies a per-sample centred log-ratio |
 | [`feature_selection.R`](R/feature_selection.R) | `run_ancombc_on_fold()` — ANCOM-BC2 differential abundance on a fold's training subjects only |
 | [`threshold.R`](R/threshold.R) | `optimize_threshold_cv()` — Youden-optimal classification threshold from validation predictions |
@@ -392,6 +393,7 @@ return value — read them in the source files below.
 | [`check_variable_availability.R`](scripts/check_variable_availability.R) | Recomputes from the cohort data the evidence behind the dictionary's `availability` column, and counts in how many folds of a saved run each variable not known at the visit entered a model. |
 | [`compare_availability_runs.R`](scripts/compare_availability_runs.R) | Compares three runs that differ only in the admitted availability classes (all, `at_visit`, `at_visit` + `after_visit`): checks that they share folds and ANCOM-BC2 selections, and prints the tables of [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md). |
 | [`sample_count_reference.R`](scripts/sample_count_reference.R) | AUROC of the number of samples per participant on the models' outer folds, with all samples and with the samples taken before weeks 24, 28 and 32 among the participants who reached them; prints the tables of [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md). |
+| [`compare_ses_runs.R`](scripts/compare_ses_runs.R) | Compares two runs of the main analysis that differ only in the derivation of the education indicator: checks that they share folds, ANCOM-BC2 selections and the Approach 1 results, and prints the tables of [`docs/SOCIOECONOMIC_INDICATORS.md`](docs/SOCIOECONOMIC_INDICATORS.md). |
 | [`sensitivity_nonindependence_weight.R`](scripts/sensitivity_nonindependence_weight.R) | Sensitivity analysis weighting samples by the inverse number of visits per subject. Note: still written against an earlier version of the engine's function signatures, so it needs updating before it will run; see [`CONTRIBUTING.md`](CONTRIBUTING.md). |
 
 ### `config/`
@@ -414,6 +416,10 @@ return value — read them in the source files below.
 - **[`sample_count_reference/`](results/sample_count_reference/)** — AUROC of the number of samples
   per participant, by outer fold and overall, with all samples and within the weeks before 24, 28
   and 32. Described in [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md).
+- **[`socioeconomic_indicators/`](results/socioeconomic_indicators/)** — metrics of the 12
+  combinations of the main analysis and the clinical variables used, per fold, before and after the
+  education indicator flagged secondary education. Described in
+  [`docs/SOCIOECONOMIC_INDICATORS.md`](docs/SOCIOECONOMIC_INDICATORS.md).
 - **[`published_version/`](results/published_version/)** — the rendered report and figures from
   before these updates. **Archived, superseded** — kept so the published state stays
   inspectable. Please cite the current results instead.
@@ -428,6 +434,7 @@ return value — read them in the source files below.
 | [`CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md) | When each clinical variable is known relative to sample collection, and which variables not known at the visit the earlier models used |
 | [`CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md) | The 12 combinations with clinical variables known at the visit only, before and after, the sensitivity analysis that adds the variables known after the visit, and which variables left each approach |
 | [`SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md) | How well the number of samples per participant alone discriminates the outcome on the models' folds, and how much of it remains within the weeks in which every participant was still pregnant |
+| [`SOCIOECONOMIC_INDICATORS.md`](docs/SOCIOECONOMIC_INDICATORS.md) | The education indicator read as a code, so that it flags secondary education as defined, and the 12 combinations of the main analysis before and after |
 
 ---
 
@@ -569,7 +576,7 @@ platforms, and reproducing the real-cohort numbers requires the restricted abund
 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-Eleven test files. Beyond unit tests of each engine function, four of them exist specifically to
+Twelve test files. Beyond unit tests of each engine function, four of them exist specifically to
 keep the study's core guarantees honest:
 
 - `test-ancom-leakage.R` — ANCOM-BC2 taxa selection uses only the fold's training subjects.
@@ -585,7 +592,7 @@ keep the study's core guarantees honest:
 PTB_RUN_SLOW_TESTS=1 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
-That is the full suite — 131 passing checks, no skips — and it is what CI runs. It takes around 20
+That is the full suite — 137 passing checks, no skips — and it is what CI runs. It takes around 20
 minutes, almost all of it in the end-to-end permutation test; without `PTB_RUN_SLOW_TESTS` the rest
 finishes in a couple of minutes.
 

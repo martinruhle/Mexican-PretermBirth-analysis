@@ -115,6 +115,12 @@ AUROC. The best, elastic net with the data-driven clinical set and ANCOM-BC2 tax
 0.240, and the mean of the 12 combinations is 0.527. Fold by fold, the best model is higher in
 folds 1 and 3 and the count in folds 2, 4 and 5.
 
+> 📌 **Update (2026-10-16).** With the education indicator updated
+> ([`SOCIOECONOMIC_INDICATORS.md`](SOCIOECONOMIC_INDICATORS.md)), the best combination is the same
+> and is 0.738 ± 0.270, and the mean of the 12 is 0.510. The comparison above holds: none of the 12
+> exceeds 0.771, and the best model is still higher in folds 1 and 3 and the count in folds 2, 4
+> and 5.
+
 How to read this comparison:
 
 - The total number of samples is known only once sampling has ended, which for a preterm

@@ -2,6 +2,12 @@
 
 **Last updated:** 2026-10-07
 
+> 📌 **Update (2026-10-16).** The main-analysis numbers below were computed with an education
+> indicator that flagged primary education only. With secondary education flagged as defined, the
+> eight Approach 2 and 3 combinations change and the best is 0.738 ± 0.270 (same combination):
+> [`SOCIOECONOMIC_INDICATORS.md`](SOCIOECONOMIC_INDICATORS.md). The sensitivity analysis below has
+> not been repeated.
+
 [`CLINICAL_VARIABLE_AVAILABILITY.md`](CLINICAL_VARIABLE_AVAILABILITY.md) classifies every clinical
 variable by when its value is known relative to the visit at which the vaginal sample was taken,
 and shows that 8 of the 12 model combinations used variables not known at the visit. The pipeline
