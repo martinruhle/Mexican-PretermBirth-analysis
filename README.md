@@ -158,12 +158,20 @@ re-running it (≈3.6 h on 8 cores).
   [`docs/CLINICAL_VARIABLE_AVAILABILITY.md`](docs/CLINICAL_VARIABLE_AVAILABILITY.md).
 - **Number of samples per participant.** Preterm participants contribute fewer samples, because
   their pregnancies end earlier, so the number of samples alone discriminates the outcome: AUROC
-  0.771 ± 0.160 on the same outer folds, above the mean AUROC of every model combination run with
+  0.771 ± 0.160 on the same outer folds, above the mean AUROC of each of the 12 combinations run with
   clinical variables known at the visit (best 0.738 ± 0.270). Counting only the samples taken before
   week 24, 28 or 32, among the participants still pregnant at that week, it falls to 0.62–0.66. The
   total count is known only once sampling ends, so it is a reference rather than a usable
   predictor; whether the models depend on the same sampling pattern has not been measured. Details
   in [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md).
+- **What the microbiome features add.** The same 2 models × 3 clinical sets run with the clinical
+  variables alone, on the same folds and with the same engine, have a higher mean AUROC than with
+  either microbiome input in 11 of the 12 model–set pairs (mean of the six: 0.606, against 0.507
+  with ANCOM-BC2 taxa and 0.513 with the full microbiome). The highest of the 18 is the elastic net
+  with the data-driven clinical set and no microbiome features, 0.802 ± 0.233. With the two
+  Approach 1 variables (gestational age at the visit and maternal age), no model is clearly above
+  chance with or without microbiome (highest 0.600 ± 0.114, Random Forest, clinical only). Details
+  in [`docs/CLINICAL_ONLY_ARM.md`](docs/CLINICAL_ONLY_ARM.md).
 - **AUROC orientation.** The pipeline reports AUROC computed with `pROC`'s automatic orientation.
   For the reported model this was verified fold by fold to be identical to a fixed orientation
   (0.760 either way); it has not yet been examined for the other 11 combinations. The permutation
@@ -394,6 +402,7 @@ return value — read them in the source files below.
 | [`compare_availability_runs.R`](scripts/compare_availability_runs.R) | Compares three runs that differ only in the admitted availability classes (all, `at_visit`, `at_visit` + `after_visit`): checks that they share folds and ANCOM-BC2 selections, and prints the tables of [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md). |
 | [`sample_count_reference.R`](scripts/sample_count_reference.R) | AUROC of the number of samples per participant on the models' outer folds, with all samples and with the samples taken before weeks 24, 28 and 32 among the participants who reached them; prints the tables of [`docs/SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md). |
 | [`compare_ses_runs.R`](scripts/compare_ses_runs.R) | Compares two runs of the main analysis that differ only in the derivation of the education indicator: checks that they share folds, ANCOM-BC2 selections and the Approach 1 results, and prints the tables of [`docs/SOCIOECONOMIC_INDICATORS.md`](docs/SOCIOECONOMIC_INDICATORS.md). |
+| [`clinical_only_arm.R`](scripts/clinical_only_arm.R) | Runs the 12 combinations of the main analysis and the same 2 models × 3 clinical sets without microbiome features, with the same engine and folds; checks that the 12 reproduce the saved results and that no microbiome feature reaches the clinical-only arm, and prints the tables of [`docs/CLINICAL_ONLY_ARM.md`](docs/CLINICAL_ONLY_ARM.md). |
 | [`sensitivity_nonindependence_weight.R`](scripts/sensitivity_nonindependence_weight.R) | Sensitivity analysis weighting samples by the inverse number of visits per subject. Note: still written against an earlier version of the engine's function signatures, so it needs updating before it will run; see [`CONTRIBUTING.md`](CONTRIBUTING.md). |
 
 ### `config/`
@@ -420,6 +429,10 @@ return value — read them in the source files below.
   combinations of the main analysis and the clinical variables used, per fold, before and after the
   education indicator flagged secondary education. Described in
   [`docs/SOCIOECONOMIC_INDICATORS.md`](docs/SOCIOECONOMIC_INDICATORS.md).
+- **[`clinical_only_arm/`](results/clinical_only_arm/)** — metrics of the 2 models × 3 clinical
+  sets with clinical variables only, with ANCOM-BC2 taxa and with the full microbiome, overall and by
+  fold, their paired differences, and the number-of-samples reference on the same folds. Described in
+  [`docs/CLINICAL_ONLY_ARM.md`](docs/CLINICAL_ONLY_ARM.md).
 - **[`published_version/`](results/published_version/)** — the rendered report and figures from
   before these updates. **Archived, superseded** — kept so the published state stays
   inspectable. Please cite the current results instead.
@@ -435,6 +448,7 @@ return value — read them in the source files below.
 | [`CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md) | The 12 combinations with clinical variables known at the visit only, before and after, the sensitivity analysis that adds the variables known after the visit, and which variables left each approach |
 | [`SAMPLE_COUNT_REFERENCE.md`](docs/SAMPLE_COUNT_REFERENCE.md) | How well the number of samples per participant alone discriminates the outcome on the models' folds, and how much of it remains within the weeks in which every participant was still pregnant |
 | [`SOCIOECONOMIC_INDICATORS.md`](docs/SOCIOECONOMIC_INDICATORS.md) | The education indicator read as a code, so that it flags secondary education as defined, and the 12 combinations of the main analysis before and after |
+| [`CLINICAL_ONLY_ARM.md`](docs/CLINICAL_ONLY_ARM.md) | The 2 models × 3 clinical sets with clinical variables only, next to the 12 combinations with microbiome on the same folds, with the Approach 1 contrast first |
 
 ---
 
@@ -504,6 +518,8 @@ Two microbiome inputs are compared:
 Every combination therefore uses microbiome **and** clinical features together; the two microbiome
 inputs and three clinical sets are what vary. (Earlier versions of this README summarised the design
 as microbiome-only vs clinical-only vs combined; the description above reflects the implementation.)
+A clinical-only arm, run separately with the same engine, folds and clinical variables, is reported
+in [`docs/CLINICAL_ONLY_ARM.md`](docs/CLINICAL_ONLY_ARM.md).
 
 ### Preprocessing recipe (per fold, fitted on inner-train)
 

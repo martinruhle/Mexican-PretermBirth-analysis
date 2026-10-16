@@ -121,6 +121,12 @@ folds 1 and 3 and the count in folds 2, 4 and 5.
 > exceeds 0.771, and the best model is still higher in folds 1 and 3 and the count in folds 2, 4
 > and 5.
 
+> 📌 **Update (2026-10-16).** The clinical-only arm ([`CLINICAL_ONLY_ARM.md`](CLINICAL_ONLY_ARM.md)),
+> run on the same folds, has one combination above the count: elastic net with the data-driven
+> clinical set and no microbiome features, 0.802 ± 0.233, higher than the count in folds 1 and 3,
+> equal in fold 2 and lower in folds 4 and 5. On the same folds, the PR-AUC of the count is
+> 0.712 ± 0.184.
+
 How to read this comparison:
 
 - The total number of samples is known only once sampling has ended, which for a preterm
