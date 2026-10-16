@@ -608,6 +608,7 @@ source(here::here("R", "data_contract.R"), local = TRUE)
 source(here::here("R", "models.R"),        local = TRUE)   # Chat 4: build_model_specs()
 source(here::here("R", "plots.R"),         local = TRUE, encoding = "UTF-8")  # Chat 6: build_*() figuras (labels con ±, ≥)
 source(here::here("R", "availability.R"),  local = TRUE)   # clases de disponibilidad de las variables clínicas
+source(here::here("R", "clinical_features.R"), local = TRUE)  # indicadores socioeconómicos (chunk feature_engineering)
 
 cfg <- read_config()   # PTB_PROFILE (default = "default")
 
@@ -1611,19 +1612,18 @@ clinical_engineered <- clinical_vars_full %>%
     
     # Binary indicators
     any_complication = ifelse(complication_count > 0, 1, 0),
-    multiple_complications = ifelse(complication_count >= 2, 1, 0),
-    
-    # ========================================================================
-    # SOCIOECONOMIC RISK PROXY
-    # ========================================================================
-    # Combines education and marital status as SES indicator
-    # Low education + unmarried status = higher social vulnerability
-    # Note: Direct income/occupation data not available
-    
-    low_education = ifelse(nivel_academico <= 2, 1, 0),  # ≤Secondary
-    unmarried = ifelse(maritalstat != 1, 1, 0),  # Not married
-    ses_risk_score = low_education + unmarried  # 0=low risk, 2=high risk
-  )
+    multiple_complications = ifelse(complication_count >= 2, 1, 0)
+  ) %>%
+  # ========================================================================
+  # SOCIOECONOMIC RISK PROXY
+  # ========================================================================
+  # Combines education and marital status as SES indicator
+  # Low education + unmarried status = higher social vulnerability
+  # Note: Direct income/occupation data not available
+  # low_education (≤Secondary), unmarried (not married) and
+  # ses_risk_score = low_education + unmarried (0=low risk, 2=high risk)
+  # are derived in R/clinical_features.R
+  derive_ses_features(education = "nivel_academico", marital = "maritalstat")
 
 cat(
   "Engineered features created:\n",
