@@ -160,6 +160,9 @@ in each fold was not traced.
   (adding back the variables known only after the visit) used the previous derivation and has not
   been repeated.
 - **The permutation test** will use the updated principal model: observed AUROC 0.738.
+  > 📌 **Update (2026-10-23).** Done, across the 18 combinations and adjusted for the choice among
+  > them: selection-adjusted p = 0.190 for this model; see
+  > [`results/permutation_test/`](../results/permutation_test/).
 - **`nivel_academico` itself** is a candidate in Approaches 2 and 3 and was not selected in either
   run; this update does not change it. The data dictionary's description of its codes 3 and 4 is
   reviewed separately, together with other descriptions that do not match the data.

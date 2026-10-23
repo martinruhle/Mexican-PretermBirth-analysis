@@ -300,9 +300,14 @@ PTB_PERM_MODE=run PTB_PERM_N=999 PTB_PERM_CORES=8 PTB_PERM_TAG=final999 Rscript 
 PTB_PERM_MODE=report PTB_PERM_TAG=final999 Rscript scripts/permutation_test.R
 ```
 
-Result on the real cohort: observed 0.760 against a null of 0.502 ± 0.121, 18 of 998 valid
-permutations reaching the observed value, **p = 0.019**. The artefacts are versioned in
+Result on the real cohort (August 2026): observed 0.760 against a null of 0.502 ± 0.121, 18 of 998
+valid permutations reaching the observed value, **p = 0.019**. The artefacts are versioned in
 `results/permutation_test/`, so none of this needs re-running to be checked.
+
+> 📌 **Update (2026-10-23).** The test now re-runs all 18 combinations in each permutation and
+> compares the observed values with the best of them (199 permutations; commands and results in
+> `results/permutation_test/README.md`). Selection-adjusted p = 0.060 for the best combination and
+> 0.190 for the main model.
 
 Two details make the null trustworthy, and both were introduced by the update:
 

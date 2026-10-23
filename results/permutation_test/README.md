@@ -3,17 +3,19 @@
 This directory holds two permutation tests:
 
 1. **[Updated test across the 18 combinations](#updated-test-across-the-18-combinations-specified-before-running)**
-   (October 2026) — its design and how its result will be read were written down here
-   *before* the permutations were run. Results will be added to that section when the null
-   distribution is complete.
+   (October 2026) — its design and how its result would be read were written down here
+   *before* the permutations were run. Selection-adjusted p = 0.060 for the best of the 18
+   (clinical only) and p = 0.190 for the main model (with ANCOM-BC2 taxa).
 2. **[Previous test, single model](#previous-test-single-model-august-2026)** (August 2026) — the
    saved files listed further down. It predates the methodological updates of September–October
    2026 and is kept for the record.
 
 ## Updated test across the 18 combinations (specified before running)
 
-> 📌 **Status (2026-10-19): running.** Everything in this section was written before any
-> permuted result was seen. The numbers below are the observed values the test is run against.
+> 📌 **Status: completed on 2026-10-23.** The design and the reading below were written on
+> 2026-10-19, before any permuted result was seen (commit
+> [`cddbe66`](https://github.com/martinruhle/Mexican-PretermBirth-analysis/commit/cddbe66)); the
+> [result](#result-2026-10-23) was added afterwards and is read as specified.
 
 ### Why the test is repeated
 
@@ -85,6 +87,88 @@ computed before the updates.
 **If the two adjusted p-values fall on different sides of 0.05** (best of 18 ≤ 0.05, main model
 > 0.05), signal above chance is reported for the clinical-only model only, and not for the model
 that includes the microbiome.
+
+### Result (2026-10-23)
+
+All 199 permutations completed (seeds 20001–20199).
+
+| | Observed AUROC | Permutations whose best of 18 reached it | Selection-adjusted p (Monte Carlo 95% interval) |
+|---|---|---|---|
+| Best of the 18 — elastic net · Approach 3 · clinical only | 0.802 | 11 / 199 | **0.060** (0.028–0.097) |
+| Main model — elastic net · Approach 3 · ANCOM-BC2 taxa | 0.738 | 37 / 199 | **0.190** (0.134–0.247) |
+
+With shuffled labels, the best of the 18 combinations reached a mean AUROC of **0.662 ± 0.083**
+(median 0.664, range 0.458–0.899; 95th percentile 0.808). Each combination on its own was centred
+near 0.5 (null means 0.479–0.499), as expected.
+
+![Null distribution of the best of 18 combinations under 199 subject-level label permutations](permutation_null_max18.png)
+
+**Reading, as specified above.** Both selection-adjusted p-values are above 0.05. Once the choice
+among 18 combinations is taken into account, the discrimination observed in this cohort cannot yet
+be distinguished from chance at the 5% level. For the clinical-only model the p-value lies close to
+the threshold and is best read as suggestive; for the model that includes the microbiome, values of
+its size are reached in about one permutation in five. The cross-validated AUROCs remain the
+estimates of discrimination for this cohort. The result does not show that the predictors carry no
+information: with 43 participants (14 preterm), and 5 outer folds of 8–9 participants, the test can
+detect only large effects. What it does show is the size of the selection effect in a design of
+this size: picking the best of 18 combinations reaches a mean AUROC of about 0.66 with no signal at
+all, and above 0.80 in about one permutation in eighteen. This is a useful reference for the cohort
+size a comparison of this kind would need.
+
+For reference only, as specified: each model's p-value against its own null, without the
+adjustment for the choice among 18, is 0.010 for the clinical-only model and 0.040 for the main
+model. They would apply only to a model fixed before the results were seen, which is not the case
+for either of them.
+
+Details of the run:
+
+- In 21 of the 199 permutations one outer test fold was left with a single class and was skipped,
+  in all 18 combinations alike (178 permutations used all 5 folds).
+- 8 of the 3,582 combination runs gave no result: in one permutation (seed 20067) none of the six
+  Approach 3 combinations produced a model, and in two others (seeds 20019 and 20066) the
+  clinical-only elastic net with Approach 1 did not. In those permutations the maximum is taken over
+  the combinations that produced a result.
+- In every permutation the AUROC reported by the pipeline equals the value recomputed from the
+  out-of-fold predictions.
+- Before the run, the observed values of the 18 combinations were checked to be identical to the
+  saved run behind [`docs/CLINICAL_ONLY_ARM.md`](../../docs/CLINICAL_ONLY_ARM.md), and reusing the
+  ANCOM-BC2 result across the six combinations that share a fold was checked to give identical
+  results, both on the observed data and on one permutation.
+- Median runtime: 2.7 minutes per permutation for all 18 combinations; 2.7 hours in total on 4
+  cores.
+
+### Files
+
+| File | What it is |
+|---|---|
+| `permutation_null_max18.png` / `.pdf` | Histogram of the best of 18 under shuffled labels, with the two observed values and their adjusted p-values. |
+| `permutation_summary_max18.csv` | One row per combination: observed AUROC, mean and SD of its own null, number of permutations with a result, `p_unadjusted`, `p_adjusted_max18` and the Monte Carlo 95% interval of the adjusted p-value. |
+| `permutation_null_max18.csv` | One row per permutation: `seed`, `n_folds_valid`, `max_auroc`, `max_combination`, and the mean AUROC of each of the 18 combinations (empty where a combination gave no result). |
+| `perm_observed_max18.rds` | The observed run: AUROC and number of folds of the 18 combinations, their per-fold metrics, and the runtimes of the checks. |
+
+### How to regenerate
+
+All modes are driven by [`scripts/permutation_test.R`](../../scripts/permutation_test.R). The first
+two need the cohort data in `data/raw/` (see [`docs/DATA_ACCESS.md`](../../docs/DATA_ACCESS.md));
+outputs go to `analysis/_output/` (untracked scratch), and the files here are copies.
+
+```bash
+# 1. Observed values of the 18 combinations and the checks above (~25 min)
+PTB_PERM_MODE=verify Rscript scripts/permutation_test.R
+```
+
+```bash
+# 2. Null distribution: 199 permutations, one file per seed (~2.7 h on 4 cores; resumable)
+PTB_PERM_MODE=run PTB_PERM_N=199 PTB_PERM_CORES=4 Rscript scripts/permutation_test.R
+```
+
+```bash
+# 3. p-values, tables and figure from the saved files (seconds; does not load the pipeline)
+PTB_PERM_MODE=report PTB_PERM_N=199 Rscript scripts/permutation_test.R
+```
+
+Each worker uses about 1 GB of memory. The seeds are fixed, so the null distribution and the
+p-values are reproducible.
 
 ## Previous test, single model (August 2026)
 

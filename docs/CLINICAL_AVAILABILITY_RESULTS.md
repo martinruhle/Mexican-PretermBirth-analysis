@@ -256,6 +256,9 @@ as before except in fold 1, where `anemia_visita` and `sex_baby` take the places
 - **The permutation test** reported in the [README](../README.md#permutation-test) (observed AUROC
   0.760, p = 0.019) was computed on an earlier state of the pipeline. It has not been repeated on
   these results.
+  > 📌 **Update (2026-10-23).** It has since been repeated on the updated pipeline, across the 18
+  > combinations of [`CLINICAL_ONLY_ARM.md`](CLINICAL_ONLY_ARM.md) and adjusted for the choice among
+  > them: see [`results/permutation_test/`](../results/permutation_test/).
 - **The participant whose pregnancy ended at 20+0 weeks** is retained as preterm
   ([`CLINICAL_VARIABLE_AVAILABILITY.md`](CLINICAL_VARIABLE_AVAILABILITY.md) §6). The analysis without
   this participant will be repeated on these results and reported separately.

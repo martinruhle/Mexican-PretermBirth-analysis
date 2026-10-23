@@ -154,6 +154,11 @@ Over the 60 fold pairs (12 model–set–input pairs × 5 folds), the AUROC with
 **Not covered here:** a permutation test of any clinical-only combination; the same comparison
 restricted to the samples taken before a fixed gestational week (landmark design).
 
+> 📌 **Update (2026-10-23).** The permutation test has since been run across the 18 combinations,
+> adjusted for the choice among them: selection-adjusted p = 0.060 for the clinical-only elastic net
+> with Approach 3 (the best of the 18) and 0.190 for the main model; see
+> [`results/permutation_test/`](../results/permutation_test/).
+
 ## 5. How the clinical-only arm was run
 
 The engine, the analysis notebook and the configuration are unchanged.

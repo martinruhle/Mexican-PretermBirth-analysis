@@ -74,6 +74,11 @@ analysis as well; it is stated here because it bears on how much weight the rank
 
 ### 1.3 The permutation test now yields a valid p-value
 
+> 📌 **Update (2026-10-23).** This test was repeated on the updated pipeline and now accounts for the
+> choice among 18 combinations: selection-adjusted p = 0.060 for the best of them (clinical only,
+> AUROC 0.802) and 0.190 for the main model (with ANCOM-BC2 taxa, AUROC 0.738). The values in this
+> section are superseded; see [`results/permutation_test/`](../results/permutation_test/).
+
 A reviewer asked for a permutation test showing the model's discrimination exceeds chance. An earlier
 version of that test existed but required substantial revision (see 2.4). Updated result:
 

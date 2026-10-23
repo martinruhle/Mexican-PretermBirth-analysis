@@ -105,41 +105,47 @@ The three clinical variable sets and the two microbiome inputs are defined in
 
 ### Permutation test
 
-The outcome labels were permuted at the subject level 999 times, with the permuted labels propagated to **every**
-place the outcome is consumed — including ANCOM-BC2 taxa selection — and the whole nested CV
-re-run each time.
+> 📌 **Update (2026-10-23).** The permutation test was repeated after the methodological updates of
+> September–October 2026, and now accounts for the choice among the 18 combinations (the 12 with
+> microbiome and the 6 clinical-only ones of [`docs/CLINICAL_ONLY_ARM.md`](docs/CLINICAL_ONLY_ARM.md)).
+> The previous test (August 2026: one model, observed AUROC 0.760, p = 0.019) is superseded; its
+> files remain in [`results/permutation_test/`](results/permutation_test/).
 
-| | Value |
-|---|---|
-| Observed AUROC | **0.760** |
-| Null distribution (999 permutations, 998 valid) | **0.502 ± 0.121** |
-| Permutations reaching the observed value | 18 / 998 |
-| **One-sided permutation p-value** | **0.019** |
+The outcome labels were permuted at the subject level 199 times, with the permuted labels
+propagated to **every** place the outcome is consumed — including ANCOM-BC2 taxa selection — and
+all 18 combinations re-run each time, selection steps included. The statistic is the **best of the
+18** in each permutation, so the p-values account for having picked the best combination. The
+design and how the result would be read were written down before the permutations were run.
 
-![Null distribution of AUROC under 999 subject-level label permutations, with the observed value marked](results/permutation_test/permutation_null_final999.png)
+| | Observed AUROC | Selection-adjusted p |
+|---|---|---|
+| Best of the 18 — elastic net · Approach 3 · clinical only | 0.802 | **0.060** |
+| Main model — elastic net · Approach 3 · ANCOM-BC2 taxa | 0.738 | **0.190** |
+| Best of 18 with shuffled labels | 0.662 ± 0.083 | — |
 
-The null is centred on 0.502, statistically indistinguishable from the 0.5 expected under no
-signal, and 48.6% of null values fall below 0.5 — that is the check that the null is legitimate.
-With the statistic used previously, the same data would have given p = 0.139.
+![Null distribution of the best of 18 combinations under 199 subject-level label permutations](results/permutation_test/permutation_null_max18.png)
 
-The saved artefacts — null distribution, summary table, per-fold supplementary table and the
-figure in both raster and vector form — are versioned in
-**[`results/permutation_test/`](results/permutation_test/)** so the test can be inspected without
-re-running it (≈3.6 h on 8 cores).
+Both p-values are above 0.05: once the choice among 18 combinations is taken into account, the
+discrimination observed in this cohort cannot yet be distinguished from chance at the 5% level. For
+the clinical-only model the p-value lies close to the threshold and is best read as suggestive. This
+does not show that the predictors carry no information — with 43 participants the test can detect
+only large effects — but it does show how large the selection effect is at this sample size: the
+best of 18 combinations reaches a mean AUROC of about 0.66 with shuffled labels. Full detail,
+including the reading specified in advance, is in
+**[`results/permutation_test/`](results/permutation_test/)**.
 
 ---
 
 ## Limitations
 
-- **The p-value is conditional on model selection.** The model submitted to the permutation test
-  is the best of the 12 combinations evaluated on the same subjects, so **p = 0.019 quantifies
-  "this particular model beats chance", not "the best of 12 models beats chance", and it is not
-  adjusted for having examined 12 combinations.** We report it unadjusted and state the
-  conditioning explicitly rather than substituting an adjusted number we cannot justify: a naive
-  Bonferroni adjustment (0.019 × 12 ≈ 0.23) would over-correct badly, because the 12 combinations
-  are not independent tests — they share the same subjects, the same outer folds and largely the
-  same features, so the effective number of independent comparisons is well below 12. Read the
-  p-value as supporting evidence for the reported model, not as a family-wise significance claim.
+- **Model selection and the p-value.** The models reported here were identified by comparing
+  combinations evaluated on the same participants. The [permutation test](#permutation-test)
+  accounts for this by re-running all 18 combinations in each permutation and comparing the observed
+  values with the best of the 18; with that adjustment, neither the best model (p = 0.060) nor the
+  main model (p = 0.190) reaches the 5% level. The adjustment follows the actual dependence between
+  the combinations (same participants, same folds, largely the same features), so it is less severe
+  than a Bonferroni correction would be. (The previous test, of a single model without this
+  adjustment, gave p = 0.019 and is superseded.)
 - **Small sample.** 43 subjects, 14 preterm, 110 longitudinal samples. Each outer test fold holds
   7–9 subjects (2–3 preterm), so per-fold AUROC is inherently unstable; hence the wide standard
   deviations above. Differences between mid-table combinations should not be over-interpreted.
@@ -396,7 +402,7 @@ return value — read them in the source files below.
 | Script | What it does |
 |---|---|
 | [`run_baseline.R`](scripts/run_baseline.R) | Renders the pipeline and additionally saves the 12 combinations as a numeric CSV, so two runs can be compared row by row. Honours `PTB_PROFILE` and `PTB_RUN_TAG`. This is the normal way to run the analysis. |
-| [`permutation_test.R`](scripts/permutation_test.R) | The permutation test, single implementation. Three modes via `PTB_PERM_MODE`: `verify` (observed value + per-fold table), `run` (null distribution, parallel), `report` (p-value, tables and figure from a saved null). |
+| [`permutation_test.R`](scripts/permutation_test.R) | The permutation test, single implementation: each permutation re-runs the 18 combinations and keeps the best. Three modes via `PTB_PERM_MODE`: `verify` (observed values and checks against the saved run), `run` (null distribution, parallel, one file per seed), `report` (p-values, tables and figure from the saved null). |
 | [`generate_example_data.R`](scripts/generate_example_data.R) | Regenerates `data/example/` from a fixed seed. Taxa names and column roles come from `config/data_dictionary.csv`, never hardcoded. |
 | [`check_variable_availability.R`](scripts/check_variable_availability.R) | Recomputes from the cohort data the evidence behind the dictionary's `availability` column, and counts in how many folds of a saved run each variable not known at the visit entered a model. |
 | [`compare_availability_runs.R`](scripts/compare_availability_runs.R) | Compares three runs that differ only in the admitted availability classes (all, `at_visit`, `at_visit` + `after_visit`): checks that they share folds and ANCOM-BC2 selections, and prints the tables of [`docs/CLINICAL_AVAILABILITY_RESULTS.md`](docs/CLINICAL_AVAILABILITY_RESULTS.md). |
@@ -573,8 +579,8 @@ Detailed variable-level documentation: [`data/README_DATA.md`](data/README_DATA.
 - **Pinned dependencies.** `renv.lock` records R 4.4.2 and the exact version of every package,
   including Bioconductor. `renv::restore()` reproduces the library; `.Rprofile` activates it.
 - **Fixed seeds.** The pipeline seed is 123 (`cv.seed`), set for fold construction, the inner
-  split and each model fit. The permutation test uses seeds 10001–10999; its p-value has been
-  reproduced across independent runs.
+  split and each model fit. The permutation test uses seeds 20001–20199 (the previous test,
+  10001–10999), so its null distribution and p-values can be reproduced exactly.
 - **No hidden state.** No absolute paths, no `setwd()`; paths resolve from the project root via
   `here::here()` and come from the config.
 - **One model, many outputs.** Each figure and table is derived from the same trained model
