@@ -396,7 +396,12 @@ if (identical(MODE, "verify")) {
   P <- lapply(perm_file(seeds[have]), readRDS)
   stopifnot(length(P) > 0, all(vapply(P, function(p) identical(names(p$auroc), keys), logical(1))))
   A  <- do.call(rbind, lapply(P, `[[`, "auroc"))           # m x 18
-  nf <- vapply(P, function(p) min(p$n_folds), integer(1))
+  # Folds con AUROC por permutacion (iguales en todas las combinaciones con resultado:
+  # dependen solo de las etiquetas). Una combinacion sin resultado tiene n_folds 0 y
+  # se cuenta aparte, en "combinaciones sin resultado".
+  nf <- vapply(P, function(p) {
+    x <- p$n_folds[p$n_folds > 0]; if (length(x)) min(x) else 0L
+  }, integer(1))
   mx <- apply(A, 1, function(x) if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE))
   ok <- !is.na(mx); m <- sum(ok)
   eps <- 1e-12                                             # empates exactos cuentan como >=
@@ -448,7 +453,7 @@ if (identical(MODE, "verify")) {
     geom_vline(data = vl, aes(xintercept = x), colour = c("#C62828", "#1565C0")[seq_len(nrow(vl))],
                linewidth = 1) +
     geom_label(data = vl, aes(x = x, y = Inf, label = label), vjust = 1.2, size = 3,
-               fill = "white", label.size = 0) +
+               fill = "white", linewidth = 0) +
     labs(title = "Permutation test: best of 18 combinations vs. chance",
          subtitle = sprintf("Maximum mean AUROC over the 18 combinations in each of %d subject-level label permutations",
                             m),
