@@ -159,6 +159,14 @@ restricted to the samples taken before a fixed gestational week (landmark design
 > with Approach 3 (the best of the 18) and 0.190 for the main model; see
 > [`results/permutation_test/`](../results/permutation_test/).
 
+> 📌 **Update (2026-11-02).** How large a difference with and without microbiome this cohort could
+> detect is now computed in [`AUROC_PRECISION.md`](AUROC_PRECISION.md).
+>
+> - **From a model at 0.70:** with the pipeline's metric, about 0.28 or more for 80% power.
+> - **From 0.80:** no attainable difference reaches that power.
+> - **Reading:** the results of this document are compatible both with no contribution of the
+>   microbiome features and with a moderate one.
+
 ## 5. How the clinical-only arm was run
 
 The engine, the analysis notebook and the configuration are unchanged.
