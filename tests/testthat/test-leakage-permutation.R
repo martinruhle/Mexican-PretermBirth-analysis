@@ -67,6 +67,7 @@ test_that("permuted subject labels collapse the reduced pipeline to chance (end-
 
   abs_data    <- load_abs_matrix(cfg)
   glmnet_spec <- build_model_specs(cfg)$glmnet_base
+  dict        <- read_data_dictionary(cfg)
 
   # train_with_nested_cv() reads `subject_labels` from the global env (a known
   # engine global-dep, flagged in R/nested_cv.R). Provide it per permutation and
@@ -101,6 +102,7 @@ test_that("permuted subject labels collapse the reduced pipeline to chance (end-
       clinical_data_all = clin_perm, microbiome_data_all = micro_genus_full,
       approach_name = "Approach1_DREAM", microbiome_option = "ANCOM_Taxa",
       cv_folds = cv_folds, clr_zero_levels = clr_zero_levels,
+      dict = dict, allowed_availability = "at_visit",
       genera_clean = genera_clean, abs_data = abs_perm)
 
     c(auroc  = as.numeric(res$summary$AUROC_mean),
@@ -117,24 +119,25 @@ test_that("permuted subject labels collapse the reduced pipeline to chance (end-
   message(sprintf("permutation null over %d perms: mean AUROC=%.3f  mean BalAcc=%.3f",
                   n_perm, mean_auroc, mean_balacc))
 
-  # ---- PRIMARY (strict): a THRESHOLD-DEPENDENT metric ------------------------
+  # ---- Threshold-dependent metric: balanced accuracy -------------------------
   # With the labels destroyed, the Youden-on-inner-validation threshold applied
   # to the independent outer-test fold yields chance balanced accuracy (~0.5,
-  # empirically ~0.52). This is the arm that would stay HIGH under the real
-  # historical bug (threshold optimised on the test fold), because a leaked
-  # threshold inflates sens/spec/accuracy even when AUROC does not.
+  # empirically ~0.50). This is the arm that would stay HIGH if the threshold
+  # were optimised on the test fold (the leakage in an earlier version of the
+  # analysis), because a leaked threshold inflates sens/spec/accuracy even when
+  # AUROC does not.
   expect_lt(mean_balacc, 0.65)
 
-  # ---- LOOSE GUARD: AUROC ----------------------------------------------------
-  # The bound is 0.75, NOT ~0.5, on purpose — and this is NOT a threshold
-  # loosened merely to pass. The engine computes AUROC with
-  # pROC::roc(direction = "auto"), which orients each fold to whichever direction
-  # gives AUC >= 0.5. Under random labels on these small outer folds that auto-
-  # flip folds the NULL AUROC into [0.5, 1] with mean ~0.63 (a known property of
-  # the metric, not leakage — it cannot collapse to 0.5 here). The real
-  # threshold-leakage verification is carried by Balanced_Accuracy above, and
-  # feature-selection leakage is covered deterministically at the component level
-  # by test-ancom-leakage.R. This guard still trips on a GROSS feature-selection
-  # leak, which would push the permuted AUROC well past 0.75.
-  expect_lt(mean_auroc, 0.75)
+  # ---- Threshold-free metric: AUROC -------------------------------------------
+  # The engine computes AUROC with the orientation fixed a priori (roc_ptb():
+  # pROC direction "<", a higher predicted probability of preterm birth is the
+  # positive call). Under random labels the AUROC is therefore centred on 0.5 —
+  # mean 0.513 over these 10 fixed-seed permutations — so it gets the same bound
+  # as balanced accuracy. One side is enough: leakage pushes AUROC up.
+  # Feature-selection leakage is also covered deterministically at the component
+  # level by test-ancom-leakage.R.
+  # History: while the engine used pROC direction = "auto", each fold was
+  # oriented towards AUC >= 0.5, which folded the null AUROC above 0.5 (mean
+  # ~0.63) and required a bound of 0.75 here.
+  expect_lt(mean_auroc, 0.65)
 })

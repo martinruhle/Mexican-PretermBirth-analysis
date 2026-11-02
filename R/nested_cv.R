@@ -9,6 +9,15 @@
 #     into every apply_clr_transform() call, so the CLR zero-replacement levels are
 #     passed in (learned once on the full microbiome) instead of being read from a
 #     global default. (Chat 2 decision: "thread as arg, compute in driver".)
+#   * outer-test metrics (2026-09): AUROC with a fixed orientation (pROC
+#     direction "<", preterm = higher score) instead of direction = "auto", and
+#     PR-AUC with preterm as the event (event_level = "second") instead of the
+#     yardstick default (first level = term). Both live in roc_ptb()/prauc_ptb();
+#     the stored ROC curve is the same object as the AUROC. Rationale in their
+#     roxygen blocks.
+#   * clinical predictors by availability (2026-10): train_with_nested_cv()
+#     takes the data dictionary and the admitted availability classes, and
+#     restricts the clinical table before the fold loop (R/availability.R).
 #
 # ✓ RESOLVED in Chat 3 (now explicit arguments of train_with_nested_cv()):
 #     - `genera_clean`   contaminant-filtered genus list -> `genera_clean` argument.
@@ -57,6 +66,61 @@ detect_prob_col <- function(df, pos_class = "1") {
   }
 }
 
+#' ROC curve of subject-level predictions with a fixed orientation
+#'
+#' Builds the ROC curve for the outcome `"1"` (preterm birth) with the
+#' orientation fixed a priori: `direction = "<"`, i.e. controls (`"0"`) are
+#' expected to score lower than cases (`"1"`), and an observation is called
+#' positive when its score is `>=` the threshold. This is the same rule the
+#' engine applies to classify the outer-test fold
+#' (`pred_prob >= threshold -> "1"`), so the AUROC, the stored ROC curve and the
+#' classification rule all describe one and the same classifier.
+#'
+#' Why the orientation is fixed rather than `direction = "auto"`:
+#' * The pROC documentation (`?roc`, argument `direction`, pROC 1.19.0.1) states
+#'   that it should be set explicitly to `">"` or `"<"` "whenever you are
+#'   resampling or randomizing the data, otherwise the curves will be biased
+#'   towards higher AUC values". Nested cross-validation resamples, and the
+#'   permutation test also randomises the labels. Reference: Robin X, Turck N,
+#'   Hainard A, Tiberti N, Lisacek F, Sanchez J-C, Müller M (2011). pROC: an
+#'   open-source package for R and S+ to analyze and compare ROC curves.
+#'   BMC Bioinformatics 12:77.
+#' * `"auto"` chooses the orientation by comparing the class medians of the
+#'   data it is given. Applied to an outer-test fold, that decision would use
+#'   the evaluation labels, and nothing may be learned from the outer-test fold.
+#' * With `"auto"`, a fold in which the model ranks preterm subjects BELOW term
+#'   subjects is reported as if the ranking were the other way round. With a
+#'   fixed orientation such a fold contributes an AUROC below 0.5, which is the
+#'   information the metric is meant to carry.
+#'
+#' @param truth Factor (or character) with levels `c("0", "1")`; `"1"` = preterm.
+#' @param score Numeric predicted probability of `"1"` (P(preterm)).
+#'
+#' @return A `pROC` `roc` object; `pROC::auc()` of it is the AUROC.
+#' @export
+roc_ptb <- function(truth, score) {
+  pROC::roc(factor(as.character(truth), levels = c("0", "1")), score,
+            levels = c("0", "1"), direction = "<", quiet = TRUE)
+}
+
+#' Area under the precision-recall curve for the preterm class
+#'
+#' `yardstick` takes the FIRST factor level as the event by default
+#' (`event_level = "first"`); with levels `c("0", "1")` that would be the term
+#' class scored with P(preterm), so the value would rise as discrimination of
+#' preterm birth gets worse. `event_level = "second"` makes preterm (`"1"`) the
+#' event, which is the outcome of interest and the class whose prevalence is
+#' the PR-AUC reference line.
+#'
+#' @inheritParams roc_ptb
+#'
+#' @return Numeric scalar, PR-AUC with `"1"` (preterm) as the event.
+#' @export
+prauc_ptb <- function(truth, score) {
+  yardstick::pr_auc_vec(factor(as.character(truth), levels = c("0", "1")), score,
+                        event_level = "second")
+}
+
 #' Train and evaluate one model configuration with nested cross-validation
 #'
 #' Runs the outer 5-fold, subject-level CV loop for a single
@@ -83,6 +147,14 @@ detect_prob_col <- function(df, pos_class = "1") {
 #'   levels from [fit_clr_zerorepl()], learned once on the full microbiome and
 #'   passed to every [apply_clr_transform()] call (threaded in explicitly rather
 #'   than read from a global).
+#' @param dict Data dictionary (from [read_data_dictionary()]); its
+#'   `availability` column gives the class of every clinical variable.
+#' @param allowed_availability Character vector of the availability classes
+#'   admitted as predictors (from [resolve_availability()]). For Approach 3 the
+#'   screening pool is restricted to these classes before the fold loop; for
+#'   Approaches 1 and 2 the variable list is already final, so a variable of
+#'   another class is an error (see [restrict_to_availability()]). The final
+#'   model on the full data uses the same restricted table.
 #' @param genera_clean Character vector of contaminant-filtered genus names
 #'   (post prevalence + decontaminant filter). Required when
 #'   `microbiome_option == "ANCOM_Taxa"`; the ANCOM OTU table is restricted to
@@ -95,7 +167,9 @@ detect_prob_col <- function(df, pos_class = "1") {
 #'   recipe. Default `FALSE`.
 #'
 #' @return A named list with `model_name`, `approach`, `microbiome`,
-#'   `fold_results`, `summary`, and (when available) `test_predictions`,
+#'   `fold_results`, `summary`, `availability` (`allowed` classes, the
+#'   `clinical_variables` the approach could use, and the `excluded` variables
+#'   with their class), and (when available) `test_predictions`,
 #'   `roc_curves`, `pr_curves`, `selected_variables`, `selected_taxa` and
 #'   `final_model`; or `NULL` if no fold produced results. `test_predictions` holds
 #'   the subject-level out-of-fold predictions (`fold`, `id`, `pred_prob`,
@@ -107,6 +181,7 @@ train_with_nested_cv <- function(model_name, model_spec,
                                   clinical_data_all, microbiome_data_all,
                                   approach_name, microbiome_option,
                                   cv_folds, clr_zero_levels,
+                                  dict, allowed_availability,
                                   genera_clean = NULL, abs_data = NULL,
                                   use_pca = FALSE) {
 
@@ -114,6 +189,27 @@ train_with_nested_cv <- function(model_name, model_spec,
   cat(sprintf("MODEL: %s | %s | %s\n",
               model_name, approach_name, microbiome_option))
   cat(sprintf("========================================\n"))
+
+  # Clinical predictors by availability class (data dictionary, column
+  # `availability`). Approach 3 screens a pool inside the folds, so the pool is
+  # restricted here, before any fold sees it; Approaches 1 and 2 arrive with a
+  # final list, which must already be admissible. Everything below (screening,
+  # fold models, final model) uses this restricted table.
+  availability_restriction <- restrict_to_availability(
+    clinical_data_all, dict, allowed_availability,
+    keys = c("index", "id", "preterm"),
+    action = if (approach_name == "Approach3_DataDriven") "drop" else "error")
+  clinical_data_all <- availability_restriction$data
+
+  cat(sprintf("  Availability classes admitted: %s\n",
+              paste(allowed_availability, collapse = ", ")))
+  if (nrow(availability_restriction$excluded) > 0) {
+    cat(sprintf("  Excluded from the clinical pool (%d): %s\n",
+                nrow(availability_restriction$excluded),
+                paste(sprintf("%s [%s]", availability_restriction$excluded$variable,
+                              availability_restriction$excluded$availability),
+                      collapse = ", ")))
+  }
 
   # Store results from each fold
   fold_results <- list()
@@ -566,16 +662,12 @@ train_with_nested_cv <- function(model_name, model_spec,
 
     bal_acc <- (sens + spec) / 2
 
-    roc_test <- roc(test_preds_subject$true_class,
-                    test_preds_subject$pred_prob,
-                    levels = c("0", "1"),
-                    direction = "auto",
-                    quiet = TRUE)
+    # AUROC with the orientation fixed a priori (preterm = higher score) and
+    # PR-AUC with preterm as the event; see roc_ptb() / prauc_ptb() for why.
+    roc_test <- roc_ptb(test_preds_subject$true_class, test_preds_subject$pred_prob)
     auroc <- auc(roc_test)
 
-    pr_data_input <- test_preds_subject %>%
-      rename(.pred_1 = pred_prob)
-    prauc <- pr_auc(pr_data_input, truth = true_class, .pred_1)$.estimate
+    prauc <- prauc_ptb(test_preds_subject$true_class, test_preds_subject$pred_prob)
 
     cat(sprintf("  Outer test metrics: AUROC=%.3f, Sens=%.3f, Spec=%.3f, Acc=%.3f\n",
                 auroc, sens, spec, acc))
@@ -605,11 +697,9 @@ train_with_nested_cv <- function(model_name, model_spec,
     # STORE ROC AND PR CURVES
     # ========================================================================
 
-    # ROC curve
-    roc_obj <- roc(test_preds_subject$true_class,
-                   test_preds_subject$pred_prob,
-                   levels = c("0", "1"),
-                   direction = "auto")
+    # ROC curve: the same object the fold AUROC was computed from, so the stored
+    # curve and the reported metric share the fixed orientation.
+    roc_obj <- roc_test
 
     # GLOBAL DEP: accumulator grown via exists()/<- (see note above).
     if(!exists("roc_curves_storage")) {
@@ -623,7 +713,8 @@ train_with_nested_cv <- function(model_name, model_spec,
       threshold = roc_obj$thresholds
     )
 
-    # PR curve
+    # PR curve for the preterm class: PRROC treats scores.class0 as the positive
+    # (foreground) class, so this is the same event as prauc_ptb() above.
     pr_obj <- pr.curve(
       scores.class0 = test_preds_subject$pred_prob[test_preds_subject$true_class == "1"],
       scores.class1 = test_preds_subject$pred_prob[test_preds_subject$true_class == "0"],
@@ -857,7 +948,12 @@ train_with_nested_cv <- function(model_name, model_spec,
     approach = approach_name,
     microbiome = microbiome_option,
     fold_results = fold_results_df,
-    summary = summary_results
+    summary = summary_results,
+    availability = list(
+      allowed = allowed_availability,
+      clinical_variables = setdiff(names(clinical_data_all), c("index", "id", "preterm")),
+      excluded = availability_restriction$excluded
+    )
   )
 
   # Add subject-level out-of-fold test predictions (ADDITIVE; see above)

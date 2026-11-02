@@ -12,7 +12,8 @@
 # config/data_dictionary.csv (fuente de verdad del contrato):
 #   * 97 taxa  = role == "microbiome"  (nombres EXACTOS, incl. Escherichia-Shigella,
 #                prefijos f__/o__/c__/d__ y el duplicado f__Bifidobacteriaceae.1)
-#   * 70 no-taxa = el resto (id, index, preterm, sdg_parto + clinicas)
+#   * 70 no-taxa = el resto (id, index, preterm, sdg_parto + clinicas), sin las
+#                filas role == "clinical_derived" (las crea el pipeline, no la matriz)
 #
 # ENTREGABLES (data/example/):
 #   example_genus_rel.csv       matriz ancha: no-taxa + 97 taxa (abundancias rel, filas ~1)
@@ -53,7 +54,9 @@ dict <- utils::read.csv(dict_path, stringsAsFactors = FALSE, check.names = FALSE
 stopifnot(all(c("variable", "role") %in% names(dict)))
 
 taxa    <- dict$variable[dict$role == "microbiome"]     # 97 taxa (orden del diccionario)
-nontaxa <- dict$variable[dict$role != "microbiome"]     # 70 no-taxa
+# role == "clinical_derived": variables que crea el pipeline (chunk feature_engineering),
+# no columnas de la matriz de entrada -> no se generan.
+nontaxa <- dict$variable[!dict$role %in% c("microbiome", "clinical_derived")]   # 70 no-taxa
 n_taxa  <- length(taxa)
 stopifnot(n_taxa == 97, length(nontaxa) == 70)
 stopifnot(anyDuplicated(taxa) == 0)                     # incl. el duplicado ...".1"
