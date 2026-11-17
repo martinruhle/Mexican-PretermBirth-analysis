@@ -1,73 +1,84 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# Permutation test for model discrimination — DRIVER (Fase 0/1/2)
+# permutation_test.R — test de permutacion con nula del MAXIMO de 18 combinaciones
 # -----------------------------------------------------------------------------
-# Reemplaza a analysis/permutation_test_nested_cv.Rmd, que es un .Rmd sin YAML,
-# no corre standalone y usa la firma vieja del motor (le faltan clr_zero_levels /
-# genera_clean / abs_data, obligatorios desde Chat 2/3).
+# PREGUNTA: ¿hay discriminacion por encima del azar aun habiendo elegido la mejor
+#   de las 18 combinaciones (12 con microbioma + 6 solo clinicas)? No mide el aporte
+#   del microbioma (eso es docs/CLINICAL_ONLY_ARM.md). Los criterios de lectura se
+#   escribieron ANTES de correr: results/permutation_test/README.md.
 #
-# MODELO OBJETIVO (Decision C2): glmnet_base | Approach3_DataDriven | ANCOM_Taxa
-#   Es el mejor modelo del baseline actual (AUROC 0.760) — el resultado que se
-#   reporta y que el revisor pidio validar. El script viejo apuntaba a
-#   rf_base|Approach3|Full_Microbiome (hoy 0.680, 6.º).
+# ESTADISTICO: por combinacion, el AUROC medio de los folds externos que reporta el
+#   motor (roc_ptb(): direccion fija "<", R/nested_cv.R). En cada permutacion se
+#   re-corren las 18 (screening del A3, ANCOM-BC2 por fold, split interno, umbral,
+#   ajuste) y se guarda el maximo. p ajustado de una combinacion =
+#   (#{max_perm >= observado} + 1) / (m + 1)  (Phipson & Smyth 2010; max-T de
+#   Westfall-Young en un paso). Se reporta para el maximo observado y para el modelo
+#   principal (MAIN). El p sin ajustar de cada combinacion (contra su propia nula)
+#   va solo como referencia.
 #
-# ESTADISTICO (Fase 2, Decision A1 + B2):
-#   * AUROC_auto  = el que reporta el motor (pROC direction="auto").
-#     "auto" elige por fold la orientacion que da AUC>=0.5 -> bajo etiquetas
-#     permutadas infla la nula a ~0.73 (medido) en vez de 0.5. NO sirve de nula.
-#   * AUROC_fixed = recalculado desde las predicciones out-of-fold que ahora
-#     exporta el motor (result$test_predictions), con direction="<" FIJA
-#     (controles<casos, la orientacion semantica de P(preterm=1)).
-#     Mismo metodo EXACTO para el observado y para la nula.
+# NO-FUGA — se permuta a nivel PARTICIPANTE y la MISMA permutacion llega a todas las
+#   copias de la etiqueta: el $clinical de cada enfoque de approaches_config
+#   (outcome), subject_labels (GLOBAL DEP del motor: estratifica el split 70/30) y
+#   abs_data$meta$preterm (ANCOM-BC2). cv_folds NO se toca: particion fija; un fold
+#   de test con una sola clase se saltea (guard del motor), igual en las 18.
 #
-# POLITICA DE FALLOS (Decision (a)): se promedian solo los folds computables.
-#   Los folds se estratificaron con las etiquetas VERDADERAS; al permutar, un
-#   fold de test puede quedar con una sola clase y su AUROC no existe. El motor
-#   ahora saltea ese fold (guard en R/nested_cv.R) en vez de abortar la corrida.
-#   Se reporta n_folds_valid por permutacion.
+# CACHE DE ANCOM-BC2: su resultado depende solo de (sujetos de outer-train,
+#   etiquetas de esas muestras, OTU filtrada), y es el mismo para las 6
+#   combinaciones con ANCOM de una permutacion. Se reemplaza run_ancombc_on_fold()
+#   en el entorno global (el motor lo resuelve ahi) por una version con cache cuya
+#   llave incluye esas tres cosas, sin tocar R/. El motor re-siembra despues de
+#   ANCOM (set.seed(123 + fold + 1000 / + 2000)), asi que la cache no cambia el RNG
+#   de lo que sigue. El modo verify lo comprueba (observado y una permutacion).
 #
-# ⚠ NO-FUGA — las TRES columnas de etiquetas se permutan:
-#   1. clinical_data_all$preterm   (outcome del modelo)
-#   2. subject_labels  (global)    (estratificacion del inner split 70/30)
-#   3. abs_data$meta$preterm       (seleccion de taxa por ANCOM-BC2)
-#   Si (3) no se permuta, ANCOM-BC2 elige taxa con las etiquetas verdaderas y la
-#   nula queda contaminada. Referencia: tests/testthat/test-leakage-permutation.R
-#   cv_folds NO se toca: el motor solo le extrae $id (R/nested_cv.R:130) -> la
-#   particion queda FIJA y solo cambian las etiquetas.
+# ANDAMIAJE: chunks del .Rmd principal POR NOMBRE hasta nested_cv_helper_functions,
+#   mas el comienzo del chunk run_nested_cv hasta ANTES del loop (ahi se crean
+#   models_to_run, approaches_config, clr_zero_levels y abs_data). El brazo solo
+#   clinico se arma como en scripts/clinical_only_arm.R: microbioma = solo llaves
+#   (index, id), microbiome_option = "Full_Microbiome", genera_clean/abs_data NULL.
 #
-# Uso:
+# MODOS (desde la raiz del repo, con los datos de la cohorte en data/raw/):
 #   PTB_PERM_MODE=verify Rscript scripts/permutation_test.R
-#   PTB_PERM_MODE=run PTB_PERM_N=20  PTB_PERM_CORES=8 Rscript scripts/permutation_test.R
-#   PTB_PERM_MODE=run PTB_PERM_N=999 PTB_PERM_CORES=8 Rscript scripts/permutation_test.R
+#     observado de las 18 == corrida de referencia (PTB_REFERENCE_RUN_TAG, por
+#     defecto clinonly_2026-10-16) campo a campo y == el CSV versionado del brazo
+#     solo clinico; cache == sin cache (observado y semilla SEED0 + 1); tiempos.
+#     Guarda analysis/_output/perm_observed_<TAG>.rds.
+#   PTB_PERM_MODE=run PTB_PERM_N=199 PTB_PERM_CORES=4 Rscript scripts/permutation_test.R
+#     una .rds por semilla en analysis/_output/perm_<TAG>/ (reanudable: las semillas
+#     ya guardadas se saltean) + progress.log.
+#   PTB_PERM_MODE=report PTB_PERM_N=199 Rscript scripts/permutation_test.R
+#     p-values, tablas y figura desde las .rds (no carga el pipeline).
 # =============================================================================
 
 suppressWarnings(suppressMessages({ library(here); library(parallel) }))
 
-MODE    <- Sys.getenv("PTB_PERM_MODE", "verify")
-N_PERM  <- as.integer(Sys.getenv("PTB_PERM_N", "20"))
-N_CORES <- as.integer(Sys.getenv("PTB_PERM_CORES", "1"))
-SEED0   <- 10000L
-OUT_DIR <- here::here("analysis", "_output")
-RMD     <- here::here("analysis", "integrated_preterm_prediction_workflow.Rmd")
-TAG     <- Sys.getenv("PTB_PERM_TAG", sprintf("n%d", N_PERM))
+MODE     <- Sys.getenv("PTB_PERM_MODE", "verify")
+N_PERM   <- as.integer(Sys.getenv("PTB_PERM_N", "199"))
+N_CORES  <- as.integer(Sys.getenv("PTB_PERM_CORES", "4"))
+SEED0    <- 20000L                     # semillas SEED0 + 1..N (la prueba previa: 10001-10999)
+TAG      <- Sys.getenv("PTB_PERM_TAG", "max18")
+REF_TAG  <- Sys.getenv("PTB_REFERENCE_RUN_TAG", "clinonly_2026-10-16")
+OUT_DIR  <- here::here("analysis", "_output")
+PERM_DIR <- file.path(OUT_DIR, paste0("perm_", TAG))
+OBS_FILE <- file.path(OUT_DIR, paste0("perm_observed_", TAG, ".rds"))
+RMD      <- here::here("analysis", "integrated_preterm_prediction_workflow.Rmd")
+REF_CSV  <- here::here("results", "clinical_only_arm", "metrics_by_combination.csv")
+MAIN     <- "glmnet_base|Approach3_DataDriven|ANCOM_Taxa"   # modelo principal reportado
 
-# Baseline congelado (Fase 0), real data post-CLR-fix y post-Escherichia-Shigella.
-# Fuente: analysis/_output/A_refactor_real_metrics.csv
-TARGET <- list(model = "glmnet_base", approach = "Approach3_DataDriven",
-               microbiome = "ANCOM_Taxa", frozen_auroc = 0.76)
+# Nombres que el motor busca con exists(): si alguno existiera en el entorno global,
+# el motor lo usaria (p.ej. microbiome_data_fold entraria como microbioma).
+ENGINE_LOCALS <- c("microbiome_data_fold", "microbiome_to_use", "selected_taxa_by_fold",
+                   "selected_variables_by_fold", "roc_curves_storage", "pr_curves_storage",
+                   "final_model_fit")
+# Campos que se comparan entre corridas (los mismos que guarda clinical_only_arm.R)
+CMP_FIELDS <- c("model_name", "approach", "microbiome", "fold_results", "summary",
+                "test_predictions", "selected_taxa", "selected_variables", "availability")
 
 say <- function(...) { cat(sprintf(...), "\n", sep = ""); flush(stdout()) }
+perm_file <- function(seed) file.path(PERM_DIR, sprintf("seed_%05d.rds", seed))
 
 # -----------------------------------------------------------------------------
-# Scaffolding: ejecutar los chunks del .Rmd principal, POR NOMBRE
+# Andamiaje: chunks del .Rmd principal, POR NOMBRE
 # -----------------------------------------------------------------------------
-# Se reejecuta el setup real en vez de reimplementarlo: cualquier divergencia
-# (una semilla, un filtro) invalidaria la comparacion observado-vs-nula. Llega
-# hasta `nested_cv_helper_functions` porque ese chunk es el que hace source() de
-# R/clr.R, R/threshold.R, R/feature_selection.R y R/nested_cv.R; el loop de 12
-# combos vive en el chunk siguiente (`run_nested_cv`) y NO se ejecuta.
-# Ademas trae los 6 helpers de screening de Approach 3, que son GLOBAL DEPs del
-# motor y viven SOLO en el .Rmd, no en R/.
 read_rmd_chunks <- function(path) {
   lines  <- readLines(path, warn = FALSE, encoding = "UTF-8")
   starts <- grep("^```\\{r", lines); closes <- grep("^```\\s*$", lines)
@@ -92,38 +103,24 @@ source_rmd_upto <- function(path, upto, envir = globalenv()) {
 build_scaffolding <- function(rmd) {
   g <- globalenv()
   source_rmd_upto(rmd, "nested_cv_helper_functions", envir = g)
-  # clr_zero_levels y abs_data se calculan al inicio del chunk `run_nested_cv`,
-  # ANTES del loop. Replicados verbatim (el motor los exige como argumentos).
-  assign("clr_taxa_all",
-         setdiff(names(get("micro_genus_full", g)), c("index", "id", "shannon_diversity")), g)
-  assign("clr_zero_levels",
-         get("fit_clr_zerorepl", g)(get("micro_genus_full", g), get("clr_taxa_all", g)), g)
-  assign("abs_data", get("load_abs_matrix", g)(get("cfg", g)), g)
-  assign("glmnet_spec", get("models_spec", g)$glmnet_base, g)
+  # Comienzo del chunk run_nested_cv, hasta ANTES del loop de las 12: define
+  # models_to_run, approaches_config, microbiome_config, clr_zero_levels, abs_data.
+  chunks <- read_rmd_chunks(rmd)
+  code   <- chunks[[which(vapply(chunks, `[[`, "", "name") == "run_nested_cv")]]$code
+  stop_at <- grep("^cv_results_all <- list\\(\\)", code)
+  stopifnot("run_nested_cv: no se encontro el comienzo del loop" = length(stop_at) == 1)
+  eval(parse(text = paste(code[seq_len(stop_at - 1)], collapse = "\n")), envir = g)
+  # El motor resuelve run_ancombc_on_fold() en su entorno: tiene que ser el global
+  # para que la version con cache lo reemplace.
+  stopifnot(identical(environment(get("train_with_nested_cv", g)), g))
+  assign("micro_none", get("micro_genus_full", g)[, c("index", "id")], g)
+  assign("run_ancombc_uncached", get("run_ancombc_on_fold", g), g)
   invisible(TRUE)
 }
 
-# -----------------------------------------------------------------------------
-# Estadistico: AUROC por fold con DIRECCION FIJA, desde las predicciones
-# -----------------------------------------------------------------------------
-# direction = "<" -> controles(0) por debajo de casos(1), que es la orientacion
-# correcta para una probabilidad de la clase "1". A diferencia de "auto", NO mira
-# las etiquetas para elegir orientacion, asi que bajo permutacion la nula puede
-# caer por debajo de 0.5 y se centra en 0.5.
-auroc_fixed_per_fold <- function(preds) {
-  if (is.null(preds) || !nrow(preds)) return(numeric(0))
-  vapply(split(preds, preds$fold), function(d) {
-    tc <- as.character(d$true_class)
-    if (length(unique(tc)) < 2) return(NA_real_)   # politica (a): fold no computable
-    as.numeric(pROC::auc(pROC::roc(factor(tc, levels = c("0", "1")), d$pred_prob,
-                                   levels = c("0", "1"), direction = "<",
-                                   quiet = TRUE)))
-  }, numeric(1))
-}
-
-# Las tres columnas `preterm` tienen TIPOS DISTINTOS (character / numeric /
-# integer). Propagar la etiqueta barajada sin respetar el tipo destino rompe el
-# motor ("argument is of length zero" en el screening de Approach 3).
+# Las columnas `preterm` tienen TIPOS DISTINTOS (character / numeric / integer).
+# Propagar la etiqueta barajada sin respetar el tipo destino rompe el motor
+# ("argument is of length zero" en el screening de Approach 3).
 cast_like <- function(x, template) {
   if (is.factor(template))       factor(as.character(x), levels = levels(template))
   else if (is.integer(template)) as.integer(x)
@@ -132,174 +129,246 @@ cast_like <- function(x, template) {
 }
 
 # -----------------------------------------------------------------------------
-# Una corrida del combo objetivo (permutada o no)
+# Cache de ANCOM-BC2
 # -----------------------------------------------------------------------------
-run_target <- function(perm_seed = NULL, keep_full = FALSE) {
-  g     <- globalenv()
-  clin  <- get("approach3_clinical_all", g)
-  abs_d <- get("abs_data", g)
-  sl    <- get("subject_labels", g)
-  clin0 <- clin; abs0 <- abs_d
+ancom_cached <- function(otu_data, meta_data, outer_train_subjects) {
+  cache <- get(".ancom_cache", envir = globalenv())
+  tr  <- meta_data$id %in% outer_train_subjects
+  key <- paste(c(sort(unique(as.character(outer_train_subjects))), "|",
+                 paste(meta_data$id[tr], meta_data$preterm[tr], sep = ":"), "|",
+                 colnames(otu_data), "|", dim(otu_data)), collapse = ",")
+  if (exists(key, envir = cache, inherits = FALSE)) {
+    cache$.hits <- cache$.hits + 1L
+    val <- get(key, envir = cache)
+  } else {
+    cache$.misses <- cache$.misses + 1L
+    val <- tryCatch(get("run_ancombc_uncached", globalenv())(otu_data, meta_data,
+                                                             outer_train_subjects),
+                    error = function(e) e)
+    assign(key, val, envir = cache)
+  }
+  if (inherits(val, "error")) stop(val)   # mismo error que la llamada sin cache
+  val
+}
 
+use_ancom_cache <- function(on) {
+  g <- globalenv()
+  cache <- new.env(hash = TRUE); cache$.hits <- 0L; cache$.misses <- 0L
+  assign(".ancom_cache", cache, g)
+  assign("run_ancombc_on_fold", if (on) ancom_cached else get("run_ancombc_uncached", g), g)
+  invisible(cache)
+}
+
+# -----------------------------------------------------------------------------
+# Las 18 combinaciones (permutadas o no)
+# -----------------------------------------------------------------------------
+micro_options <- function() c(get("cfg", globalenv())$microbiome_options, "None")
+
+keys_18 <- function() {
+  g <- globalenv()
+  unlist(lapply(get("models_to_run", g), function(m)
+    lapply(get("approaches_config", g), function(a)
+      paste(m$name, a$name, micro_options(), sep = "|"))))
+}
+
+permute_inputs <- function(perm_seed) {
+  g  <- globalenv()
+  sl <- get("subject_labels", g); ap <- get("approaches_config", g); ab <- get("abs_data", g)
   if (!is.null(perm_seed)) {
     set.seed(perm_seed)
     sl$preterm <- sample(sl$preterm)                       # baraja a nivel SUJETO
-    lab <- stats::setNames(sl$preterm, sl$id)
-    clin$preterm       <- cast_like(unname(lab[as.character(clin$id)]), clin0$preterm)
-    abs_d$meta$preterm <- cast_like(unname(lab[as.character(abs_d$meta$id)]),
-                                    abs0$meta$preterm)     # ⚠ ANCOM-BC2
-    stopifnot(!anyNA(clin$preterm), !anyNA(abs_d$meta$preterm))
   }
+  # Con o sin permutar, cada copia de la etiqueta sale de la MISMA tabla por sujeto
+  # (sin permutar, deja los datos iguales: lo comprueba verify).
+  lab <- stats::setNames(as.character(sl$preterm), as.character(sl$id))
+  for (i in seq_along(ap)) {
+    cl <- ap[[i]]$clinical
+    cl$preterm <- cast_like(unname(lab[as.character(cl$id)]), cl$preterm)
+    stopifnot(!anyNA(cl$preterm))
+    ap[[i]]$clinical <- cl
+  }
+  ab$meta$preterm <- cast_like(unname(lab[as.character(ab$meta$id)]), ab$meta$preterm)  # ⚠ ANCOM-BC2
+  stopifnot(!anyNA(ab$meta$preterm))
+  list(subject_labels = sl, approaches = ap, abs_data = ab)
+}
 
+run_18 <- function(perm_seed = NULL, cache = TRUE) {
+  g   <- globalenv()
+  inp <- permute_inputs(perm_seed)
   old_sl <- get("subject_labels", g)                        # GLOBAL DEP del motor
-  assign("subject_labels", sl, envir = g)
+  assign("subject_labels", inp$subject_labels, envir = g)
   on.exit(assign("subject_labels", old_sl, envir = g), add = TRUE)
+  ac <- use_ancom_cache(cache)
 
-  res <- tryCatch(
-    get("train_with_nested_cv", g)(
-      model_name = TARGET$model, model_spec = get("glmnet_spec", g),
-      clinical_data_all = clin, microbiome_data_all = get("micro_genus_full", g),
-      approach_name = TARGET$approach, microbiome_option = TARGET$microbiome,
-      cv_folds = get("cv_folds", g), clr_zero_levels = get("clr_zero_levels", g),
-      genera_clean = get("genera_clean", g), abs_data = abs_d),
-    error = function(e) { message("perm failed: ", conditionMessage(e)); NULL })
+  res <- list()
+  for (model in get("models_to_run", g)) for (approach in inp$approaches)
+    for (mi in micro_options()) {
+      hit <- ENGINE_LOCALS[vapply(ENGINE_LOCALS, exists, logical(1), envir = g)]
+      if (length(hit)) stop("Objects the engine looks up with exists() are defined: ",
+                            paste(hit, collapse = ", "))
+      none <- identical(mi, "None")
+      k <- paste(model$name, approach$name, mi, sep = "|")
+      r <- tryCatch(get("train_with_nested_cv", g)(
+        model_name = model$name, model_spec = model$spec,
+        clinical_data_all = approach$clinical,
+        microbiome_data_all = get(if (none) "micro_none" else "micro_genus_full", g),
+        approach_name = approach$name,
+        microbiome_option = if (none) "Full_Microbiome" else mi,
+        cv_folds = get("cv_folds", g), clr_zero_levels = get("clr_zero_levels", g),
+        dict = get("dict", g), allowed_availability = get("availability_allowed", g),
+        genera_clean = if (none) NULL else get("genera_clean", g),
+        abs_data = if (none) NULL else inp$abs_data, use_pca = model$pca),
+        error = function(e) { message(k, " failed: ", conditionMessage(e)); NULL })
+      if (!is.null(r)) r$microbiome <- mi
+      res[k] <- list(r)
+    }
+  attr(res, "ancom_calls") <- c(hits = ac$.hits, misses = ac$.misses)
+  res
+}
 
-  if (is.null(res) || is.null(res$summary))
-    return(list(auto = NA_real_, fixed = NA_real_, n_folds_valid = 0L, err = TRUE))
+# AUROC medio por combinacion (el del motor) + chequeo: recalculado desde las
+# predicciones out-of-fold con roc_ptb() tiene que dar lo mismo.
+summarise_18 <- function(res, keys) {
+  auc <- vapply(keys, function(k) {
+    r <- res[[k]]; if (is.null(r$summary)) NA_real_ else as.numeric(r$summary$AUROC_mean)
+  }, numeric(1))
+  nf <- vapply(keys, function(k) {
+    r <- res[[k]]; if (is.null(r$summary)) 0L else as.integer(r$summary$n_folds)
+  }, integer(1))
+  rd <- vapply(keys, function(k) {
+    tp <- res[[k]]$test_predictions
+    if (is.null(tp) || !nrow(tp)) return(NA_real_)
+    pf <- vapply(split(tp, tp$fold), function(d) {
+      if (length(unique(as.character(d$true_class))) < 2) return(NA_real_)
+      as.numeric(pROC::auc(get("roc_ptb", globalenv())(d$true_class, d$pred_prob)))
+    }, numeric(1))
+    abs(mean(pf, na.rm = TRUE) - auc[[k]])
+  }, numeric(1))
+  list(auroc = auc, n_folds = nf,
+       recompute_maxdiff = if (all(is.na(rd))) NA_real_ else max(rd, na.rm = TRUE),
+       ancom_calls = attr(res, "ancom_calls"))
+}
 
-  per_fold <- auroc_fixed_per_fold(res$test_predictions)
-  out <- list(auto  = as.numeric(res$summary$AUROC_mean),   # direction="auto"
-              fixed = if (all(is.na(per_fold))) NA_real_ else mean(per_fold, na.rm = TRUE),
-              n_folds_valid = sum(!is.na(per_fold)),        # politica (a)
-              err = FALSE)
-  # keep_full solo para el observado: en la nula multiplicaria por 999 la memoria
-  if (keep_full) {
-    out$fold_results     <- res$fold_results
-    out$auroc_fixed_fold <- per_fold
-    out$test_predictions <- res$test_predictions
-  }
-  out
+same_results <- function(a, b, keys) {
+  bad <- unlist(lapply(keys, function(k) {
+    f <- intersect(CMP_FIELDS, union(names(a[[k]]), names(b[[k]])))
+    d <- f[!vapply(f, function(x) identical(a[[k]][[x]], b[[k]][[x]]), logical(1))]
+    if (length(d)) paste0(k, " [", paste(d, collapse = ", "), "]")
+  }))
+  if (length(bad)) paste(bad, collapse = "; ") else TRUE
+}
+
+timed <- function(expr) {
+  t <- Sys.time()
+  invisible(utils::capture.output(v <- suppressWarnings(suppressMessages(expr))))
+  list(value = v, mins = as.numeric(difftime(Sys.time(), t, units = "mins")))
 }
 
 # -----------------------------------------------------------------------------
 # MAIN
 # -----------------------------------------------------------------------------
-say("\n=== Scaffolding (chunks del .Rmd hasta nested_cv_helper_functions) ===")
-t0 <- Sys.time()
-invisible(capture.output(suppressWarnings(suppressMessages(build_scaffolding(RMD)))))
-say("listo en %.1f s | subjects=%d PTB=%d folds=%d",
-    as.numeric(difftime(Sys.time(), t0, units = "secs")),
-    nrow(subject_labels), sum(subject_labels$preterm == "1"), nrow(cv_folds))
-
 if (identical(MODE, "verify")) {
-  say("\n=== FASE 0/2 — observado (SIN permutar) ===")
-  say("Target: %s | %s | %s", TARGET$model, TARGET$approach, TARGET$microbiome)
-  tt <- Sys.time()
-  invisible(capture.output(obs <- run_target(NULL, keep_full = TRUE)))
-  say("\n  AUROC_auto  (motor, direction=auto) : %.4f", obs$auto)
-  say("  AUROC_fixed (direction='<' fija)    : %.4f", obs$fixed)
-  say("  baseline congelado                  : %.4f", TARGET$frozen_auroc)
-  say("  folds computables                   : %d", obs$n_folds_valid)
-  say("  |auto - congelado| = %.2e   |fixed - auto| = %.2e",
-      abs(obs$auto - TARGET$frozen_auroc), abs(obs$fixed - obs$auto))
-  say("  runtime: %.1f s", as.numeric(difftime(Sys.time(), tt, units = "secs")))
-  saveRDS(obs, file.path(OUT_DIR, "perm_observed.rds"))
+  say("=== Scaffolding (chunks del .Rmd hasta nested_cv_helper_functions + inicio de run_nested_cv) ===")
+  t0 <- Sys.time()
+  invisible(capture.output(suppressWarnings(suppressMessages(build_scaffolding(RMD)))))
+  KEYS <- keys_18()
+  say("listo en %.1f s | sujetos %d (PTB %d) | folds %d | combinaciones %d | clases: %s",
+      as.numeric(difftime(Sys.time(), t0, units = "secs")), nrow(subject_labels),
+      sum(subject_labels$preterm == "1"), nrow(cv_folds), length(KEYS),
+      paste(availability_allowed, collapse = ", "))
+  stopifnot(length(KEYS) == 18, MAIN %in% KEYS)
 
-  # TABLA SUPLEMENTARIA POR FOLD — segundo pedido del revisor ("per-fold metrics
-  # should appear in a supplementary table"). Portado del chunk
-  # `supplementary_fold_metrics` del .Rmd retirado: ahora sale del MISMO objeto
-  # que produce el observado, en vez de depender de un `cv_results_all` que
-  # tuviera que estar en memoria de otra corrida.
-  ft <- obs$fold_results
-  ft$AUROC_fixed <- as.numeric(obs$auroc_fixed_fold)[match(ft$fold, as.integer(names(obs$auroc_fixed_fold)))]
-  ft <- ft[, c("fold", "n_test", "n_ptb", "threshold", "AUROC", "AUROC_fixed",
-               "PRAUC", "Sensitivity", "Specificity", "Balanced_Accuracy", "Youden")]
-  num <- setdiff(names(ft), c("fold", "n_test", "n_ptb"))
-  ft[num] <- lapply(ft[num], function(x) round(x, 4))
-  write.csv(ft, file.path(OUT_DIR, "supplementary_per_fold_metrics.csv"), row.names = FALSE)
-  say("\n  Tabla suplementaria por fold -> analysis/_output/supplementary_per_fold_metrics.csv")
-  print(ft)
+  # Sin permutar, las etiquetas reconstruidas desde subject_labels == las de los datos
+  inp0 <- permute_inputs(NULL)
+  stopifnot(identical(inp0$approaches, approaches_config), identical(inp0$abs_data, abs_data))
+  say("Etiquetas por sujeto consistentes en los 3 enfoques y en la metadata de ANCOM-BC2: TRUE")
 
-} else if (identical(MODE, "report")) {
-  # Reconstruye los productos finales desde el .rds ya calculado (no re-corre las
-  # permutaciones). Portado de los chunks `permutation_results` y
-  # `permutation_plot` del .Rmd retirado.
-  nullf <- file.path(OUT_DIR, sprintf("perm_null_%s.rds", TAG))
-  stopifnot(file.exists(nullf))
-  r   <- readRDS(nullf)
-  obs <- r$observed$fixed
-  f   <- r$fixed[!is.na(r$fixed)]
-  a   <- r$auto[!is.na(r$auto)]
-  pv  <- (sum(f >= obs) + 1) / (length(f) + 1)          # Phipson & Smyth (2010)
-  pv_auto <- (sum(a >= obs) + 1) / (length(a) + 1)
+  say("\n=== 1. Observado, sin cache ===")
+  o1 <- timed(run_18(NULL, cache = FALSE))
+  say("  %.1f min | llamadas a ANCOM-BC2: %s", o1$mins,
+      paste(names(attr(o1$value, "ancom_calls")), attr(o1$value, "ancom_calls"), collapse = " "))
+  ref_file <- file.path(OUT_DIR, paste0(REF_TAG, "_cv_folds.rds"))
+  stopifnot("falta la corrida de referencia" = file.exists(ref_file))
+  ref <- readRDS(ref_file)
+  names(ref) <- vapply(ref, function(r) paste(r$model_name, r$approach, r$microbiome, sep = "|"), "")
+  stopifnot(setequal(names(ref), KEYS))
+  chk <- same_results(o1$value, ref, KEYS)
+  if (!isTRUE(chk)) stop("El observado difiere de la corrida ", REF_TAG, ": ", chk)
+  say("  18 combinaciones == corrida %s (%s): TRUE", REF_TAG, paste(CMP_FIELDS[-(1:3)], collapse = ", "))
+  rc <- utils::read.csv(REF_CSV, stringsAsFactors = FALSE)
+  rck <- paste(rc$Model, rc$Approach, rc$Microbiome, sep = "|")
+  obs <- summarise_18(o1$value, KEYS)
+  stopifnot(setequal(rck, KEYS),
+            isTRUE(all.equal(unname(obs$auroc[rck]), rc$AUROC_mean, tolerance = 1e-12)))
+  say("  AUROC == results/clinical_only_arm/metrics_by_combination.csv: TRUE")
+  say("  AUROC del motor == recalculado desde las predicciones (max |diff| %.1e)", obs$recompute_maxdiff)
+  stopifnot(obs$recompute_maxdiff < 1e-12)
 
-  say("\n=== REPORTE (%s) ===", TAG)
-  say("  observado           : %.4f", obs)
-  say("  nula fija           : %.4f +/- %.4f  (z vs 0.5 = %.2f)",
-      mean(f), sd(f), (mean(f) - 0.5) / (sd(f) / sqrt(length(f))))
-  say("  fraccion nula < 0.5 : %.3f  (con direction=auto: %.3f)", mean(f < 0.5), mean(a < 0.5))
-  say("  p-value (fija)      : %.4f   [%d/%d >= observado]", pv, sum(f >= obs), length(f))
-  say("  p-value (auto,previo): %.4f   [%d/%d]  <- lo que habria reportado el estadistico anterior",
-      pv_auto, sum(a >= obs), length(a))
-  say("  validas %d/%d | folds computables %.3f/5 | perms con fold degenerado %d",
-      length(f), r$n_perm, mean(r$n_folds_valid), sum(r$n_folds_valid < nrow(cv_folds)))
+  say("\n=== 2. Observado, con cache ===")
+  o2 <- timed(run_18(NULL, cache = TRUE))
+  ac <- attr(o2$value, "ancom_calls")
+  chk <- same_results(o2$value, o1$value, KEYS)
+  if (!isTRUE(chk)) stop("Con cache el observado difiere: ", chk)
+  say("  %.1f min | ANCOM-BC2: %d calculadas, %d desde la cache | == sin cache: TRUE",
+      o2$mins, ac[["misses"]], ac[["hits"]])
+  stopifnot(ac[["hits"]] > 0)
 
-  write.csv(data.frame(permutation = seq_along(r$fixed), seed = r$seeds,
-                       auroc_fixed = r$fixed, auroc_auto = r$auto,
-                       n_folds_valid = r$n_folds_valid),
-            file.path(OUT_DIR, sprintf("permutation_null_%s.csv", TAG)), row.names = FALSE)
-  write.csv(data.frame(model = TARGET$model, approach = TARGET$approach,
-                       microbiome = TARGET$microbiome, observed_auroc = obs,
-                       null_mean = mean(f), null_sd = sd(f), null_median = median(f),
-                       null_min = min(f), null_max = max(f),
-                       n_permutations = r$n_perm, n_valid = length(f),
-                       n_exceeding = sum(f >= obs), p_value = pv,
-                       p_value_prior_statistic = pv_auto),
-            file.path(OUT_DIR, sprintf("permutation_summary_%s.csv", TAG)), row.names = FALSE)
+  s1 <- SEED0 + 1L
+  say("\n=== 3. Permutacion %d, sin cache y con cache ===", s1)
+  p1 <- timed(run_18(s1, cache = FALSE))
+  p2 <- timed(run_18(s1, cache = TRUE))
+  chk <- same_results(p2$value, p1$value, KEYS)
+  if (!isTRUE(chk)) stop("Con cache la permutacion difiere: ", chk)
+  ac <- attr(p2$value, "ancom_calls")
+  say("  sin cache %.1f min | con cache %.1f min (ANCOM-BC2: %d calculadas, %d desde la cache) | identicas: TRUE",
+      p1$mins, p2$mins, ac[["misses"]], ac[["hits"]])
 
-  suppressWarnings(suppressMessages(library(ggplot2)))
-  p <- ggplot(data.frame(null_auroc = f), aes(x = null_auroc)) +
-    geom_histogram(bins = 40, fill = "grey72", colour = "white", linewidth = 0.2) +
-    geom_vline(xintercept = 0.5, colour = "grey35", linetype = "dashed", linewidth = 0.7) +
-    geom_vline(xintercept = obs, colour = "#C62828", linewidth = 1.1) +
-    annotate("text", x = obs - 0.012, y = Inf, vjust = 1.8, hjust = 1,
-             label = sprintf("Observed\nAUROC = %.3f", obs),
-             colour = "#C62828", size = 3.5, fontface = "bold") +
-    annotate("text", x = 0.5, y = Inf, vjust = 1.4, hjust = 0.5,
-             label = "Chance\n(0.5)", colour = "grey35", size = 3, fontface = "italic") +
-    annotate("label", x = Inf, y = Inf, hjust = 1.05, vjust = 1.4,
-             label = sprintf("p = %.3f\n(%d/%d >= observed)", pv, sum(f >= obs), length(f)),
-             fill = "#C8E6C9", size = 3.4, fontface = "bold") +
-    labs(title = "Permutation test: model discrimination vs. chance",
-         subtitle = sprintf("%s | %s | %s - %d subject-level label permutations (direction-fixed AUROC)",
-                            TARGET$model, TARGET$approach, TARGET$microbiome, length(f)),
-         x = "Mean AUROC (null distribution)", y = "Count",
-         caption = sprintf("Null: %.3f +/- %.3f | Observed: %.3f | one-sided permutation p = %.3f",
-                           mean(f), sd(f), obs, pv)) +
-    theme_minimal(base_size = 11) +
-    theme(plot.title = element_text(face = "bold"),
-          plot.subtitle = element_text(size = 9, colour = "grey30"),
-          plot.caption = element_text(size = 8, colour = "grey40"),
-          panel.grid.minor = element_blank())
-  ggsave(file.path(OUT_DIR, sprintf("permutation_null_%s.png", TAG)), p,
-         width = 8, height = 5, dpi = 300)
-  ggsave(file.path(OUT_DIR, sprintf("permutation_null_%s.pdf", TAG)), p, width = 8, height = 5)
-  say("  CSVs + figura (.png/.pdf) escritos en analysis/_output/")
+  obs$keys <- KEYS; obs$main <- MAIN; obs$reference_run <- REF_TAG
+  obs$fold_results <- lapply(o1$value[KEYS], `[[`, "fold_results")
+  obs$minutes <- c(observed_uncached = o1$mins, observed_cached = o2$mins,
+                   perm_uncached = p1$mins, perm_cached = p2$mins)
+  saveRDS(obs, OBS_FILE)
+  say("\n  maximo observado %.4f (%s) | principal %.4f (%s)",
+      max(obs$auroc), KEYS[which.max(obs$auroc)], obs$auroc[[MAIN]], MAIN)
+  say("  -> %s", OBS_FILE)
+  say("  proyeccion de %d permutaciones con cache: %.1f h de nucleo", N_PERM, p2$mins * N_PERM / 60)
 
-} else {
+} else if (identical(MODE, "run")) {
   seeds <- SEED0 + seq_len(N_PERM)
-  say("\n=== FASE 2 — %d permutaciones | %d worker(s) ===", N_PERM, N_CORES)
-  tt <- Sys.time()
+  dir.create(PERM_DIR, showWarnings = FALSE, recursive = TRUE)
+  todo <- seeds[!file.exists(perm_file(seeds))]
+  prog <- file.path(PERM_DIR, "progress.log")
+  say("=== %d permutaciones (semillas %d-%d) | ya guardadas %d | faltan %d | %d worker(s) ===",
+      N_PERM, min(seeds), max(seeds), N_PERM - length(todo), length(todo), N_CORES)
+  cat(sprintf("%s start: %d to do, %d workers\n", format(Sys.time()), length(todo), N_CORES),
+      file = prog, append = TRUE)
 
-  if (N_CORES > 1) {
-    cl <- makeCluster(N_CORES)
-    clusterExport(cl, c("read_rmd_chunks", "source_rmd_upto", "build_scaffolding",
-                        "auroc_fixed_per_fold", "cast_like", "run_target",
-                        "RMD", "TARGET"), envir = environment())
+  one_seed <- function(s) {
+    t <- Sys.time()
+    out <- tryCatch({
+      invisible(utils::capture.output(                     # el motor es muy verboso
+        res <- suppressWarnings(suppressMessages(run_18(s, cache = TRUE)))))
+      sm <- summarise_18(res, keys_18())
+      sm$seed <- s; sm$minutes <- as.numeric(difftime(Sys.time(), t, units = "mins"))
+      saveRDS(sm, perm_file(s))
+      sprintf("seed %d ok %.1f min | max %.4f | folds %d | ANCOM %d/%d", s, sm$minutes,
+              max(sm$auroc, na.rm = TRUE), min(sm$n_folds), sm$ancom_calls[["misses"]],
+              sum(sm$ancom_calls))
+    }, error = function(e) sprintf("seed %d FAILED: %s", s, conditionMessage(e)))
+    cat(sprintf("%s pid %d %s\n", format(Sys.time()), Sys.getpid(), out), file = prog, append = TRUE)
+    out
+  }
+
+  tt <- Sys.time()
+  if (length(todo) && N_CORES > 1) {
+    cl <- makeCluster(N_CORES, outfile = file.path(PERM_DIR, "workers.log"))
+    clusterExport(cl, c("read_rmd_chunks", "source_rmd_upto", "build_scaffolding", "cast_like",
+                        "ancom_cached", "use_ancom_cache", "micro_options", "keys_18",
+                        "permute_inputs", "run_18", "summarise_18", "perm_file", "one_seed",
+                        "RMD", "PERM_DIR", "ENGINE_LOCALS", "prog"), envir = environment())
     invisible(clusterEvalQ(cl, {
-      # Un worker por core: si ademas cada uno abre threads propios (OpenMP/BLAS/
-      # data.table) se sobresuscriben los cores y el throughput cae. Se fija a 1
-      # ANTES de cargar los paquetes (build_scaffolding los attachea).
+      # Un worker por core: sin threads propios (OpenMP/BLAS/data.table) para no
+      # sobresuscribir. Se fija ANTES de cargar los paquetes.
       Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1",
                  MKL_NUM_THREADS = "1", OMP_THREAD_LIMIT = "1")
       suppressWarnings(suppressMessages({ library(here); library(parallel) }))
@@ -307,56 +376,100 @@ if (identical(MODE, "verify")) {
       invisible(capture.output(suppressWarnings(suppressMessages(build_scaffolding(RMD)))))
       TRUE
     }))
-    say("workers listos (%.1f s de setup)", as.numeric(difftime(Sys.time(), tt, units = "secs")))
-    out <- parLapply(cl, seeds, function(s) {
-      invisible(utils::capture.output(                     # el motor es muy verboso
-        r <- suppressWarnings(suppressMessages(run_target(s)))))
-      r
-    })
-    stopCluster(cl)          # explicito: on.exit al final del script tiraba ruido
-  } else {
-    out <- lapply(seeds, function(s) { invisible(capture.output(r <- run_target(s))); r })
+    say("workers listos (%.1f min de setup)", as.numeric(difftime(Sys.time(), tt, units = "mins")))
+    out <- parLapplyLB(cl, todo, one_seed)
+    stopCluster(cl)
+  } else if (length(todo)) {
+    invisible(capture.output(suppressWarnings(suppressMessages(build_scaffolding(RMD)))))
+    out <- lapply(todo, one_seed)
+  } else out <- list()
+  done <- sum(file.exists(perm_file(seeds)))
+  say("listo en %.1f h | guardadas %d/%d | fallidas en esta corrida %d",
+      as.numeric(difftime(Sys.time(), tt, units = "hours")), done, N_PERM,
+      sum(grepl("FAILED", unlist(out))))
+
+} else if (identical(MODE, "report")) {
+  stopifnot(file.exists(OBS_FILE))
+  obs   <- readRDS(OBS_FILE); keys <- obs$keys
+  seeds <- SEED0 + seq_len(N_PERM)
+  have  <- file.exists(perm_file(seeds))
+  P <- lapply(perm_file(seeds[have]), readRDS)
+  stopifnot(length(P) > 0, all(vapply(P, function(p) identical(names(p$auroc), keys), logical(1))))
+  A  <- do.call(rbind, lapply(P, `[[`, "auroc"))           # m x 18
+  # Folds con AUROC por permutacion (iguales en todas las combinaciones con resultado:
+  # dependen solo de las etiquetas). Una combinacion sin resultado tiene n_folds 0 y
+  # se cuenta aparte, en "combinaciones sin resultado".
+  nf <- vapply(P, function(p) {
+    x <- p$n_folds[p$n_folds > 0]; if (length(x)) min(x) else 0L
+  }, integer(1))
+  mx <- apply(A, 1, function(x) if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE))
+  ok <- !is.na(mx); m <- sum(ok)
+  eps <- 1e-12                                             # empates exactos cuentan como >=
+  p_adj <- function(x) (sum(mx[ok] >= x - eps) + 1) / (m + 1)
+  mc_ci <- function(x) stats::binom.test(sum(mx[ok] >= x - eps), m)$conf.int
+  best_key <- keys[which.max(obs$auroc)]
+
+  summ <- do.call(rbind, lapply(keys, function(k) {
+    a <- A[, k]; v <- a[!is.na(a)]; ci <- mc_ci(obs$auroc[[k]])
+    data.frame(combination = k, observed_auroc = obs$auroc[[k]],
+               null_mean = mean(v), null_sd = stats::sd(v), n_null = length(v),
+               p_unadjusted = (sum(v >= obs$auroc[[k]] - eps) + 1) / (length(v) + 1),
+               p_adjusted_max18 = p_adj(obs$auroc[[k]]),
+               p_adjusted_mc_ci_low = ci[1], p_adjusted_mc_ci_high = ci[2],
+               stringsAsFactors = FALSE)
+  }))
+  summ <- summ[order(-summ$observed_auroc), ]
+
+  say("=== REPORTE (%s) | permutaciones con resultado %d/%d (guardadas %d) ===",
+      TAG, m, N_PERM, sum(have))
+  say("  nula del maximo de 18: media %.4f | sd %.4f | mediana %.4f | rango [%.4f, %.4f]",
+      mean(mx[ok]), stats::sd(mx[ok]), stats::median(mx[ok]), min(mx[ok]), max(mx[ok]))
+  for (k in unique(c(best_key, obs$main))) {
+    ci <- mc_ci(obs$auroc[[k]])
+    say("  %s: observado %.4f | %d/%d maximos >= observado | p ajustado = %.4f (IC 95%% Monte Carlo %.4f-%.4f)",
+        k, obs$auroc[[k]], sum(mx[ok] >= obs$auroc[[k]] - eps), m, p_adj(obs$auroc[[k]]), ci[1], ci[2])
   }
+  say("  folds computables por permutacion: media %.2f | permutaciones con algun fold salteado %d",
+      mean(nf), sum(nf < 5))
+  say("  combinaciones sin resultado: %d de %d", sum(is.na(A)), length(A))
+  rdm <- max(vapply(P, function(p) p$recompute_maxdiff, numeric(1)), na.rm = TRUE)
+  say("  AUROC del motor vs recalculado desde predicciones: max |diff| %.1e", rdm)
+  say("  minutos por permutacion (un worker): mediana %.1f",
+      stats::median(vapply(P, `[[`, numeric(1), "minutes")))
 
-  secs <- as.numeric(difftime(Sys.time(), tt, units = "secs"))
-  auto  <- vapply(out, `[[`, numeric(1), "auto")
-  fixed <- vapply(out, `[[`, numeric(1), "fixed")
-  nfv   <- vapply(out, `[[`, integer(1), "n_folds_valid")
+  nul <- data.frame(seed = seeds[have], n_folds_valid = nf, max_auroc = mx,
+                    max_combination = keys[apply(A, 1, which.max)], A, check.names = FALSE)
+  utils::write.csv(nul, file.path(OUT_DIR, sprintf("permutation_null_%s.csv", TAG)), row.names = FALSE)
+  utils::write.csv(summ, file.path(OUT_DIR, sprintf("permutation_summary_%s.csv", TAG)), row.names = FALSE)
 
-  obs_path <- file.path(OUT_DIR, "perm_observed.rds")
-  observed <- if (file.exists(obs_path)) readRDS(obs_path) else NULL
-
-  say("\n--- RUNTIME ---")
-  say("  total %.1f min | %.1f s/perm efectivos (%d workers)",
-      secs / 60, secs / N_PERM, N_CORES)
-  say("  proyeccion 999 perms: %.2f h", secs / N_PERM * 999 / 3600)
-
-  say("")
-  say("--- NULA: AUROC_auto (el estadistico ANTERIOR, direction=auto) ---")
-  say("  media %.4f | sd %.4f | rango [%.4f, %.4f] | validas %d/%d",
-      mean(auto, na.rm = TRUE), sd(auto, na.rm = TRUE),
-      min(auto, na.rm = TRUE), max(auto, na.rm = TRUE), sum(!is.na(auto)), N_PERM)
-
-  say("\n--- NULA: AUROC_fixed (direction fija — el correcto) ---")
-  say("  media %.4f | sd %.4f | rango [%.4f, %.4f] | validas %d/%d",
-      mean(fixed, na.rm = TRUE), sd(fixed, na.rm = TRUE),
-      min(fixed, na.rm = TRUE), max(fixed, na.rm = TRUE), sum(!is.na(fixed)), N_PERM)
-  say("  >>> chequeo: la nula fija deberia centrarse cerca de 0.5 (la auto, ~0.73)")
-  say("  folds computables por perm: media %.2f / %d (politica (a))",
-      mean(nfv), nrow(cv_folds))
-  say("  perms con algun fold degenerado: %d", sum(nfv < nrow(cv_folds)))
-
-  if (!is.null(observed)) {
-    v <- fixed[!is.na(fixed)]
-    p <- (sum(v >= observed$fixed) + 1) / (length(v) + 1)   # Phipson & Smyth
-    say("\n--- p-value (direction fija) ---")
-    say("  observado %.4f | nulas >= observado: %d/%d | p = %.4f",
-        observed$fixed, sum(v >= observed$fixed), length(v), p)
-  }
-
-  saveRDS(list(auto = auto, fixed = fixed, n_folds_valid = nfv, seeds = seeds,
-               n_perm = N_PERM, secs = secs, target = TARGET, observed = observed),
-          file.path(OUT_DIR, sprintf("perm_null_%s.rds", TAG)))
+  suppressWarnings(suppressMessages(library(ggplot2)))
+  lab <- function(k) sprintf("%s\n%.3f, p = %.3f", c(best = "Best of 18", main = "Main model")[[
+    if (k == best_key) "best" else "main"]], obs$auroc[[k]], p_adj(obs$auroc[[k]]))
+  vl <- data.frame(k = unique(c(best_key, obs$main)))
+  vl$x <- unname(obs$auroc[vl$k]); vl$label <- vapply(vl$k, lab, "")
+  p <- ggplot(data.frame(max_auroc = mx[ok]), aes(x = max_auroc)) +
+    geom_histogram(bins = 30, fill = "grey72", colour = "white", linewidth = 0.2) +
+    geom_vline(xintercept = 0.5, colour = "grey35", linetype = "dashed", linewidth = 0.6) +
+    geom_vline(data = vl, aes(xintercept = x), colour = c("#C62828", "#1565C0")[seq_len(nrow(vl))],
+               linewidth = 1) +
+    geom_label(data = vl, aes(x = x, y = Inf, label = label), vjust = 1.2, size = 3,
+               fill = "white", linewidth = 0) +
+    labs(title = "Permutation test: best of 18 combinations vs. chance",
+         subtitle = sprintf("Maximum mean AUROC over the 18 combinations in each of %d subject-level label permutations",
+                            m),
+         x = "Maximum mean AUROC across the 18 combinations (null distribution)", y = "Count",
+         caption = sprintf("Null maximum: %.3f ± %.3f | one-sided p = (b + 1)/(m + 1)",
+                           mean(mx[ok]), stats::sd(mx[ok]))) +
+    theme_minimal(base_size = 11) +
+    theme(plot.title = element_text(face = "bold"),
+          plot.subtitle = element_text(size = 9, colour = "grey30"),
+          plot.caption = element_text(size = 8, colour = "grey40"),
+          panel.grid.minor = element_blank())
+  ggsave(file.path(OUT_DIR, sprintf("permutation_null_%s.png", TAG)), p, width = 8, height = 5, dpi = 300)
+  ggsave(file.path(OUT_DIR, sprintf("permutation_null_%s.pdf", TAG)), p, width = 8, height = 5)
+  say("  CSVs + figura escritos en analysis/_output/")
+} else {
+  stop("PTB_PERM_MODE desconocido: ", MODE)
 }
 
-say("\nDONE (%s)", MODE)
+say("DONE (%s)", MODE)

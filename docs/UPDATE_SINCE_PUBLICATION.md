@@ -74,6 +74,11 @@ analysis as well; it is stated here because it bears on how much weight the rank
 
 ### 1.3 The permutation test now yields a valid p-value
 
+> 📌 **Update (2026-10-23).** This test was repeated on the updated pipeline and now accounts for the
+> choice among 18 combinations: selection-adjusted p = 0.060 for the best of them (clinical only,
+> AUROC 0.802) and 0.190 for the main model (with ANCOM-BC2 taxa, AUROC 0.738). The values in this
+> section are superseded; see [`results/permutation_test/`](../results/permutation_test/).
+
 A reviewer asked for a permutation test showing the model's discrimination exceeds chance. An earlier
 version of that test existed but required substantial revision (see 2.4). Updated result:
 
@@ -264,3 +269,23 @@ The previous permutation-test implementation (`analysis/permutation_test_nested_
 rather than revised: it duplicated the analysis engine, and that duplication is precisely how it
 drifted out of sync with it. Maintaining a single implementation is what the current
 `scripts/permutation_test.R` provides. The retired file remains in the Git history.
+
+---
+
+## 7. Sequencing platform on record
+
+*Added 2026-11-17. This section changes no result.*
+
+The table below records the sequencing instrument named by each public source, checked against the
+sequencing facility's reports.
+
+| Source | Instrument stated |
+|---|---|
+| NCBI Sequence Read Archive, BioProject [PRJNA1440471](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1440471) (study SRP685475) | All 111 runs: platform `ILLUMINA`, instrument model `NextSeq 2000`, amplicon, paired-end. Each experiment's design description reads "Paired-end sequencing on Illumina NextSeq 2000." |
+| Published article ([doi: 10.3389/fgwh.2026.1799518](https://doi.org/10.3389/fgwh.2026.1799518)), §2.3.1 | "using the Illumina NextSeq 2000 platform with a P1 600-cycle flow cell generating 2×300 bp paired-end reads". §2.3.2 adds that DADA2 was run with parameters "optimized for Illumina NextSeq data". |
+| Processing repository, [`docs/RUN_MALIAMPI.md` §2](https://github.com/martinruhle/Mexican-PretermBirth-16S-processing/blob/main/docs/RUN_MALIAMPI.md#where-the-111-libraries-come-from-and-how-they-were-sequenced) | Illumina NextSeq 2000, P1 600-cycle reagents, 2 × 300, one run on one flow cell. Three independent observations support this: the facility's sequencing QC report (dated 2024-07-22), the instrument ID in the read headers (prefix `VH`, used for the NextSeq 1000/2000), and the untrimmed read length (301 nt). |
+
+All three sources agree on the NextSeq 2000, so no update to the SRA metadata was requested or
+needed. The analysis files in this repository name the amplified region but not the instrument
+(the main pipeline says the region was "sequenced on the Illumina platform"), so none of them
+needed a revision either.

@@ -33,7 +33,8 @@ Since this render was made, three methodological updates changed the results:
 3. The permutation test supporting the significance claim was rebuilt.
 
 The current best model is **elastic net · Approach 3 · ANCOM-BC2 taxa, AUROC 0.760 ± 0.270**,
-with a permutation p-value of **0.019**. Full detail, including what each update changed, is in
+with a permutation p-value of **0.019**. (📌 Update 2026-10-23: both values have since been updated
+again; see the [repository README](../../README.md#permutation-test).) Full detail, including what each update changed, is in
 [`docs/UPDATE_SINCE_PUBLICATION.md`](../../docs/UPDATE_SINCE_PUBLICATION.md); the current results
 table is in the [repository README](../../README.md#results).
 

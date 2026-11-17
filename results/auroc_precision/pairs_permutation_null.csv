@@ -1,0 +1,13 @@
+"combination","clinical_only","n_perm","r_null","sd_diff_null"
+"rf_base|Approach1_DREAM|ANCOM_Taxa","rf_base|Approach1_DREAM|None",199,0.335088883827121,0.135674118177885
+"rf_base|Approach1_DREAM|Full_Microbiome","rf_base|Approach1_DREAM|None",199,0.122066169950396,0.161818088009808
+"rf_base|Approach2_Literature|ANCOM_Taxa","rf_base|Approach2_Literature|None",199,0.721101813887254,0.0923509072342013
+"rf_base|Approach2_Literature|Full_Microbiome","rf_base|Approach2_Literature|None",199,0.44665414884734,0.128636294116352
+"rf_base|Approach3_DataDriven|ANCOM_Taxa","rf_base|Approach3_DataDriven|None",198,0.700142869050935,0.0983459177703251
+"rf_base|Approach3_DataDriven|Full_Microbiome","rf_base|Approach3_DataDriven|None",198,0.424074661483916,0.134375482604401
+"glmnet_base|Approach1_DREAM|ANCOM_Taxa","glmnet_base|Approach1_DREAM|None",197,0.433931263974411,0.134365973330907
+"glmnet_base|Approach1_DREAM|Full_Microbiome","glmnet_base|Approach1_DREAM|None",197,0.139413450403083,0.16193918996692
+"glmnet_base|Approach2_Literature|ANCOM_Taxa","glmnet_base|Approach2_Literature|None",199,0.702128478567946,0.0947986115881409
+"glmnet_base|Approach2_Literature|Full_Microbiome","glmnet_base|Approach2_Literature|None",199,0.439502244327154,0.130551091696323
+"glmnet_base|Approach3_DataDriven|ANCOM_Taxa","glmnet_base|Approach3_DataDriven|None",198,0.802986386856627,0.0843456939762848
+"glmnet_base|Approach3_DataDriven|Full_Microbiome","glmnet_base|Approach3_DataDriven|None",198,0.605037505758677,0.118019643645373
